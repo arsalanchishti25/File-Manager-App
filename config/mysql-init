@@ -1,0 +1,104 @@
+- MySQL Initialization Script for File Manager
+
+CREATE DATABASE IF NOT EXISTS filemanager;
+USE filemanager;
+
+-- Users table
+CREATE TABLE IF NOT EXISTS users (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    username VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    role ENUM('STANDARD', 'ADMIN') DEFAULT 'STANDARD',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_username(username),
+    INDEX idx_role(role)
+);
+
+-- Files table
+CREATE TABLE IF NOT EXISTS files (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    file_id VARCHAR(255) UNIQUE NOT NULL,
+    owner_id BIGINT NOT NULL,
+    filename VARCHAR(255) NOT NULL,
+    size_in_bytes BIGINT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    chunk_metadata JSON,
+    status ENUM('UPLOADING', 'READY', 'DELETED') DEFAULT 'READY',
+    FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_owner(owner_id),
+    INDEX idx_file_id(file_id),
+    INDEX idx_status(status)
+);
+
+-- File chunks table (tracks where each chunk is stored)
+CREATE TABLE IF NOT EXISTS file_chunks (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    file_id VARCHAR(255) NOT NULL,
+    chunk_index INT NOT NULL,
+    container_id BIGINT NOT NULL,
+    checksum VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (file_id) REFERENCES files(file_id) ON DELETE CASCADE,
+    FOREIGN KEY (container_id) REFERENCES containers(id),
+    UNIQUE KEY unique_chunk(file_id, chunk_index),
+    INDEX idx_file(file_id)
+);
+
+-- Containers table (tracks all running containers)
+CREATE TABLE IF NOT EXISTS containers (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(255) UNIQUE NOT NULL,
+    container_ip VARCHAR(15) NOT NULL,
+    assigned_port INT NOT NULL,
+    status ENUM('HEALTHY', 'UNHEALTHY', 'STOPPED') DEFAULT 'HEALTHY',
+    created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_health_check TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    load_score INT DEFAULT 0,
+    container_type ENUM('STORAGE', 'AGGREGATOR', 'LOAD_BALANCER') NOT NULL,
+    volume_group INT,
+    INDEX idx_status(status),
+    INDEX idx_type(container_type),
+    INDEX idx_volume_group(volume_group)
+);
+
+-- Permissions table (file sharing)
+CREATE TABLE IF NOT EXISTS permissions (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    file_id VARCHAR(255) NOT NULL,
+    user_id BIGINT NOT NULL,
+    permission ENUM('READ', 'WRITE', 'READ_WRITE') NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (file_id) REFERENCES files(file_id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_permission(file_id, user_id),
+    INDEX idx_file(file_id),
+    INDEX idx_user(user_id)
+);
+
+-- Event logs table (audit trail)
+CREATE TABLE IF NOT EXISTS event_logs (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    user_id BIGINT,
+    action VARCHAR(255) NOT NULL,
+    resource_type VARCHAR(255),
+    resource_id VARCHAR(255),
+    details JSON,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+    INDEX idx_user(user_id),
+    INDEX idx_action(action),
+    INDEX idx_created(created_at)
+);
+
+-- Insert default admin user
+-- Password hash for "admin" (using BCrypt - update if your hash is different)
+INSERT INTO users (username, password_hash, role)
+VALUES ('admin', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcg7b3XeKeUxWdeS86E36P4/eL2', 'ADMIN')
+ON DUPLICATE KEY UPDATE username=username;
+
+-- Create database user with proper permissions
+CREATE USER IF NOT EXISTS 'fileapp'@'%' IDENTIFIED BY 'fileapp123';
+GRANT ALL PRIVILEGES ON filemanager.* TO 'fileapp'@'%';
+FLUSH PRIVILEGES;

@@ -1,0 +1,364 @@
+# version: '3.8'
+services:
+  # ============================================
+  # MYSQL DATABASE
+  # ============================================
+  mysql:
+    image: mysql:8.0
+    container_name: filemanager-mysql
+    
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: filemanager
+      MYSQL_USER: fileapp
+      MYSQL_PASSWORD: fileapp123
+    
+    ports:
+      - "3307:3306"
+    
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./config/mysql-init.sql:/docker-entrypoint-initdb.d/init.sql
+    
+    networks:
+      - filemanager-network
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+
+    # healthcheck:
+    #   test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+    #   interval: 10s
+    #   timeout: 5s
+    #   retries: 5
+
+  # ============================================
+  # MQTT BROKER
+  # ============================================
+  mqtt-broker:
+    image: eclipse-mosquitto:latest
+    container_name: filemanager-mqtt
+    
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    
+    volumes:
+      - ./config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - mqtt-data:/mosquitto/data
+    
+    networks:
+      - filemanager-network
+    
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -t '$$SYS/#' -C 1 -i healthcheck -W 3 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ============================================
+  # MAIN APP (JavaFX GUI)
+  # ============================================
+  main-app:
+    image: pedrombmachado/ntu_lubuntu:soft40051
+    container_name: filemanager-mainapp
+
+    ports:
+      - "3390:3389"
+      - "2022:22"
+
+    environment:
+      MYSQL_HOST: filemanager-mysql
+      MYSQL_PORT: "3306"
+      MYSQL_DATABASE: filemanager
+      MYSQL_USER: fileapp
+      MYSQL_PASSWORD: fileapp123
+      MQTT_BROKER_URL: tcp://filemanager-mqtt:1883
+      SQLITE_DB_PATH: /app/data/fileapp.db
+        
+    networks:
+      - filemanager-network
+    
+    volumes:
+      - ./main-app:/app/data
+
+    # stdin_open: true
+    # tty: true
+
+    # depends_on:
+    #   mysql:
+    #     condition: service_healthy
+    #   mqtt-broker:
+    #     condition: service_started
+
+  # ============================================
+  # LOAD BALANCER
+  # ============================================
+  load-balancer:
+    image: maven:3.9.6-eclipse-temurin-22
+    container_name: filemanager-loadbalancer
+    working_dir: /app
+
+    environment:
+      MQTT_BROKER_URL: tcp://filemanager-mqtt:1883
+      MAVEN_OPTS: "-Xmx512m"
+     
+    networks:
+      - filemanager-network
+    
+    volumes:
+      - ./load-balancer:/app 
+      - maven-repo:/root/.m2  # ← Cache Maven deps
+
+    command: >
+      sh -c "mvn clean compile && 
+             mvn exec:java -Dexec.mainClass=com.example.loadbalancer.LoadBalancerApp"
+
+    # command: mvn clean compile exec:java -Dexec.mainClass="com.example.loadbalancer.LoadBalancerApp"
+
+    # ports:
+    #   - "8080:8080"
+
+    # depends_on:
+    #   mysql:
+    #     condition: service_healthy
+    #   mqtt-broker:
+    #     condition: service_started
+
+  # ============================================
+  # AGGREGATOR
+  # ============================================
+  aggregator:
+    image: maven:3.9.6-eclipse-temurin-22
+    container_name: filemanager-aggregator
+    working_dir: /app
+
+    environment:
+      MQTT_BROKER_URL: tcp://filemanager-mqtt:1883
+      SFTP_PORT: "2222"
+      MAVEN_OPTS: "-Xmx512m"
+    
+    networks:
+      - filemanager-network
+    
+    volumes:
+      - ./aggregator:/app
+      - aggregator-data:/app/data
+      - maven-repo:/root/.m2
+      
+    command: >
+      sh -c "mvn clean compile && 
+             mvn exec:java -Dexec.mainClass=com.example.aggregator.AggregatorApp"
+
+    # command: mvn clean compile exec:java -Dexec.mainClass="com.example.aggregator.AggregatorApp"
+
+    # environment:
+    #   CONTAINER_ID: aggregator-1
+    #   CONTAINER_INDEX: "1"
+    #   MYSQL_HOST: mysql
+    #   MYSQL_PORT: "3306"
+    #   MYSQL_DATABASE: filemanager
+    #   MYSQL_USER: fileapp
+    #   MYSQL_PASSWORD: fileapp123
+    #   MQTT_BROKER_URL: tcp://mqtt-broker:1883
+    
+    # depends_on:
+    #   mysql:
+    #     condition: service_healthy
+    #   mqtt-broker:
+    #     condition: service_started
+    #   load-balancer:
+    #     condition: service_started
+
+  # ============================================
+  # FILE STORAGE 1
+  # ============================================
+  file-storage-1:
+    image: maven:3.9.6-eclipse-temurin-22
+    container_name: filemanager-storage-1
+    working_dir: /app
+    
+    environment:
+      CONTAINER_ID: storage-1
+      CONTAINER_INDEX: "1"
+      VOLUME_GROUP: "1"
+      MQTT_BROKER_URL: tcp://filemanager-mqtt:1883
+      STORAGE_PORT: "8082"
+      SFTP_PORT: "2201"
+      MAVEN_OPTS: "-Xmx256m"
+
+    depends_on:
+      - mqtt-broker
+      - load-balancer
+    
+    networks:
+      - filemanager-network
+    
+    volumes:
+      - ./file-storage:/app  # ← Code (shared across all storage)
+      - storage-volume-1:/storage/data  # ← Data (unique per container)
+      - maven-repo:/root/.m2
+
+    command: >
+      sh -c "mvn clean compile && 
+             mvn exec:java -Dexec.mainClass=com.example.filestorage.FileStorageApp"
+    # command: mvn clean compile exec:java -Dexec.mainClass="com.example.filestorage.FileStorageApp"
+
+  # ============================================
+  # FILE STORAGE 2
+  # ============================================
+  file-storage-2:
+    image: maven:3.9.6-eclipse-temurin-22
+    container_name: filemanager-storage-2
+    working_dir: /app
+
+    environment:
+      CONTAINER_ID: storage-2
+      CONTAINER_INDEX: "2"
+      VOLUME_GROUP: "2"
+      MQTT_BROKER_URL: tcp://filemanager-mqtt:1883
+      STORAGE_PORT: "8083"
+      SFTP_PORT: "2202"
+      MAVEN_OPTS: "-Xmx256m"
+
+    depends_on:
+      - mqtt-broker
+      - load-balancer
+    
+    networks:
+      - filemanager-network
+    
+    volumes:
+      - ./file-storage:/app
+      - storage-volume-2:/storage/data
+      - maven-repo:/root/.m2
+
+    command: >
+      sh -c "mvn clean compile && 
+             mvn exec:java -Dexec.mainClass=com.example.filestorage.FileStorageApp"
+
+    # command: mvn clean compile exec:java -Dexec.mainClass="com.example.filestorage.FileStorageApp"
+
+  # ============================================
+  # FILE STORAGE 3
+  # ============================================
+  file-storage-3:
+    image: maven:3.9.6-eclipse-temurin-22
+    container_name: filemanager-storage-3
+    working_dir: /app
+
+    environment:
+      CONTAINER_ID: storage-3
+      CONTAINER_INDEX: "3"
+      VOLUME_GROUP: "3"
+      MQTT_BROKER_URL: tcp://filemanager-mqtt:1883
+      STORAGE_PORT: "8084"
+      SFTP_PORT: "2203"
+      MAVEN_OPTS: "-Xmx256m"
+
+    depends_on:
+      - mqtt-broker
+      - load-balancer
+    
+    networks:
+      - filemanager-network
+    
+    volumes:
+      - ./file-storage:/app
+      - storage-volume-3:/storage/data
+      - maven-repo:/root/.m2
+
+    command: >
+      sh -c "mvn clean compile && 
+             mvn exec:java -Dexec.mainClass=com.example.filestorage.FileStorageApp"
+    # command: mvn clean compile exec:java -Dexec.mainClass="com.example.filestorage.FileStorageApp"
+
+  # ============================================
+  # FILE STORAGE 4
+  # ============================================
+  file-storage-4:
+    image: maven:3.9.6-eclipse-temurin-22
+    container_name: filemanager-storage-4
+    working_dir: /app
+
+    environment:
+      CONTAINER_ID: storage-4
+      CONTAINER_INDEX: "4"
+      VOLUME_GROUP: "4"
+      MQTT_BROKER_URL: tcp://filemanager-mqtt:1883
+      STORAGE_PORT: "8085"
+      SFTP_PORT: "2204"
+      MAVEN_OPTS: "-Xmx256m"
+    
+    depends_on:
+      - mqtt-broker
+      - load-balancer
+    
+    networks:
+      - filemanager-network
+    
+    volumes:
+      - ./file-storage:/app  
+      - storage-volume-4:/storage/data
+      - maven-repo:/root/.m2
+
+    command: >
+      sh -c "mvn clean compile && 
+             mvn exec:java -Dexec.mainClass=com.example.filestorage.FileStorageApp"
+
+    # command: mvn clean compile exec:java -Dexec.mainClass="com.example.filestorage.FileStorageApp"
+
+  # ============================================
+  # GITEA (Git Repository Management)
+  # ============================================
+  # gitea:
+  #   image: gitea/gitea:1.25
+  #   container_name: filemanager-gitea
+    
+  #   environment:
+  #     - USER_UID=1000
+  #     - USER_GID=1000
+  #     - GITEA__database__DB_TYPE=mysql
+  #     - GITEA__database__HOST=filemanager-mysql:3306
+  #     - GITEA__database__NAME=gitea
+  #     - GITEA__database__USER=gitea
+  #     - GITEA__database__PASSWD=gitea123
+    
+  #   ports:
+  #     - "3000:3000"
+  #     - "2222:22"
+    
+  #   volumes:
+  #     - gitea-data:/data
+  #     - /etc/timezone:/etc/timezone:ro
+  #     - /etc/localtime:/etc/localtime:ro
+    
+  #   networks:
+  #     - filemanager-network
+    
+  #   depends_on:
+  #     - mysql
+    
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: '0.5'
+  #         memory: 512M
+
+networks:
+  filemanager-network:
+    driver: bridge
+
+volumes:
+  mysql-data:
+  mqtt-data:
+  aggregator-data:
+  storage-volume-1:
+  storage-volume-2:
+  storage-volume-3:
+  storage-volume-4:
+  # gitea-data:
+  maven-repo:  # ← NEW: Cache Maven dependencies
