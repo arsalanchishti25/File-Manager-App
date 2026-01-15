@@ -280,23 +280,19 @@ public class MySQLFileRepository implements FileRepository {
 
     // CHANGE 8: Add updateFileStatus method (from updated interface)
     // WHY: Track upload progress: "UPLOADING" -> "READY" or "FAILED"
-    @Override
-    public void updateFileStatus(long fileId, String status) {
-        String sql = "UPDATE files SET status = ?, last_modified = ? WHERE id = ?";
-
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-
-            ps.setString(1, status);
-            ps.setObject(2, LocalDateTime.now());
-            ps.setLong(3, fileId);
-            ps.executeUpdate();
-
-        } catch (SQLException e) {
-            System.err.println("MySQLFileRepository.updateFileStatus error: " + e.getMessage());
-            throw new RuntimeException(e);
-        }
-    }
+    // public void updateFileStatus(long fileId, String status) {
+    //     String sql = "UPDATE files SET status = ?, last_modified = ? WHERE id = ?";
+    //     try (Connection conn = dataSource.getConnection();
+    //          PreparedStatement ps = conn.prepareStatement(sql)) {
+    //         ps.setString(1, status);
+    //         ps.setObject(2, LocalDateTime.now());
+    //         ps.setLong(3, fileId);
+    //         ps.executeUpdate();
+    //     } catch (SQLException e) {
+    //         System.err.println("MySQLFileRepository.updateFileStatus error: " + e.getMessage());
+    //         throw new RuntimeException(e);
+    //     }
+    // }
 
     private File mapResultSetToFile(ResultSet rs) throws SQLException {
         // No changes needed

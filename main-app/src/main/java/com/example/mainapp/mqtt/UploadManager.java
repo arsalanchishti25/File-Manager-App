@@ -48,13 +48,13 @@ public class UploadManager {
 
         // Step 1: Save metadata with UPLOADING status
         File file = fileRepository.saveFile(ownerId, filename, fileSize);
-        fileRepository.updateFileStatus(file.getId(), "UPLOADING");
+        // fileRepository.updateFileStatus(file.getId(), "UPLOADING");
         
         System.out.println("[UploadManager] File metadata saved with ID: " + file.getId());
 
         try {
             // Step 2: Send MQTT request to Load Balancer
-            // FIXED: Use operations/request topic and include mainAppId
+            // Use operations/request topic and include mainAppId
             JsonObject uploadRequest = new JsonObject();
             uploadRequest.addProperty("operation", "UPLOAD");
             uploadRequest.addProperty("fileId", file.getId());
@@ -104,7 +104,7 @@ public class UploadManager {
             instructions.add("fsContainers", fsContainersArray);
 
             // FIXED: Save as instructions.json (not manifest.json)
-            Path instructionsPath = Paths.get("data/temp/uploads/instructions_" + file.getId() + ".json");
+            Path instructionsPath = Paths.get("/data/temp/uploads/instructions_" + file.getId() + ".json");
             Files.createDirectories(instructionsPath.getParent());
             Files.writeString(instructionsPath, instructions.toString());
 
@@ -176,7 +176,7 @@ public class UploadManager {
             }
 
             // Step 8: Update file status to READY
-            fileRepository.updateFileStatus(file.getId(), "READY");
+            // fileRepository.updateFileStatus(file.getId(), "READY");
             System.out.println("[UploadManager] Upload complete for file " + file.getId());
 
             // Cleanup temp files
@@ -185,7 +185,7 @@ public class UploadManager {
             return file;
 
         } catch (Exception e) {
-            fileRepository.updateFileStatus(file.getId(), "FAILED");
+            // fileRepository.updateFileStatus(file.getId(), "FAILED");
             System.err.println("[UploadManager] Upload failed: " + e.getMessage());
             e.printStackTrace();
             throw e;

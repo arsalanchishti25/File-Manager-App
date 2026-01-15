@@ -12,11 +12,6 @@ public class PermissionService {
 
     private final PermissionRepository permissionRepository;
 
-    // public PermissionService() {
-    //     this.permissionRepository =
-    //             new SQLitePermissionRepository(new LocalSQLiteDataSource());
-    // }
-
     public PermissionService() {
         this.permissionRepository =
             new MySQLPermissionRepository(new RemoteMySQLDataSource());

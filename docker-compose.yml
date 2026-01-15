@@ -361,4 +361,4 @@ volumes:
   storage-volume-3:
   storage-volume-4:
   # gitea-data:
-  maven-repo:  # ← NEW: Cache Maven dependencies
+  maven-repo:  # ← Cache Maven dependencies

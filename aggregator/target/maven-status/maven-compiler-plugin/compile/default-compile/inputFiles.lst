@@ -1,0 +1,14 @@
+/app/src/main/java/com/example/aggregator/model/UploadInstructions.java
+/app/src/main/java/com/example/aggregator/service/UploadHandler.java
+/app/src/main/java/com/example/aggregator/AggregatorApp.java
+/app/src/main/java/com/example/aggregator/sftp/SftpUserInfo.java
+/app/src/main/java/com/example/aggregator/sftp/SftpClient.java
+/app/src/main/java/com/example/aggregator/mqtt/MqttBroker.java
+/app/src/main/java/com/example/aggregator/service/DownloadHandler.java
+/app/src/main/java/com/example/aggregator/service/EncryptionService.java
+/app/src/main/java/com/example/aggregator/service/ChunkService.java
+/app/src/main/java/com/example/aggregator/mqtt/MqttMessageHandler.java
+/app/src/main/java/com/example/aggregator/sftp/SftpServer.java
+/app/src/main/java/com/example/aggregator/service/HealthReporter.java
+/app/src/main/java/com/example/aggregator/model/AggregatorConfig.java
+/app/src/main/java/com/example/aggregator/model/DownloadInstructions.java

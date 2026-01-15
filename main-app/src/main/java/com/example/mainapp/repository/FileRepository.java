@@ -104,5 +104,5 @@ public interface FileRepository {
      * @param fileId File ID
      * @param status New status
      */
-    void updateFileStatus(long fileId, String status);
+    // void updateFileStatus(long fileId, String status);
 }

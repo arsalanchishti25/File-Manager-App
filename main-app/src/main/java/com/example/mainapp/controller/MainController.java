@@ -191,53 +191,57 @@ public class MainController implements Initializable {
         if (chosen == null) {
             return;
         }
+        System.out.println("Selected file: " + chosen.getAbsolutePath());
+        System.out.println("File exists: " + chosen.exists());
+        System.out.println("File readable: " + chosen.canRead());
+        System.out.println("File size: " + chosen.length() + " bytes");
 
         // Show progress indicator
-        ProgressIndicator progress = new ProgressIndicator();
-        Alert progressAlert = new Alert(Alert.AlertType.INFORMATION);
-        progressAlert.setTitle("Uploading...");
-        progressAlert.setHeaderText("Uploading " + chosen.getName());
-        progressAlert.setGraphic(progress);
-        progressAlert.getButtonTypes().clear();
-        progressAlert.show();
-
+        // ProgressIndicator progress = new ProgressIndicator();
+        // Alert progressAlert = new Alert(Alert.AlertType.INFORMATION);
+        // progressAlert.setTitle("Uploading...");
+        // progressAlert.setHeaderText("Uploading " + chosen.getName());
+        // progressAlert.setGraphic(progress);
+        // progressAlert.getButtonTypes().clear();
+        // progressAlert.show();
         // Run upload in background thread
-        new Thread(() -> {
-            try {
-                File newFile = fileService.uploadFile(currentUser.getId(), chosen.toPath());
-                
-                // Update UI on JavaFX thread
-                javafx.application.Platform.runLater(() -> {
-                    progressAlert.close();
-                    fileData.add(newFile);
-                    fileTable.refresh();
-                    eventLogger.logFileUploaded(
-                        currentUser.getId(), 
-                        newFile.getId(), 
-                        newFile.getFilename(),
-                        newFile.getSizeInBytes()
-                    );
-                    showInfo("Upload Complete", "File uploaded: " + newFile.getFilename());
-                });
-                
-            } catch (Exception e) {
-                javafx.application.Platform.runLater(() -> {
-                    progressAlert.close();
-                    System.err.println("Upload failed: " + e.getMessage());
-                    showError("Upload Failed", "Failed to upload file: " + e.getMessage());
-                });
-            }
-        }).start();        
-        // try {
-        //     File newFile = fileService.uploadFile(currentUser.getId(), chosen.toPath());
-        //     fileData.add(newFile);
-        //     fileTable.refresh();
-        //     eventLogger.logFileUploaded(currentUser.getId(), newFile.getId(), newFile.getFilename(),
-        //             newFile.getSizeInBytes());
-        // } catch (Exception e) {
-        //     System.err.println("Upload failed: " + e.getMessage());
-        //     showError("Upload Failed", "Failed to upload file: " + e.getMessage());
-        // }
+        // new Thread(() -> {
+        //     try {
+        //         File newFile = fileService.uploadFile(currentUser.getId(), chosen.toPath());        
+        //         // Update UI on JavaFX thread
+        //         javafx.application.Platform.runLater(() -> {
+        //             progressAlert.close();
+        //             fileData.add(newFile);
+        //             fileTable.refresh();
+        //             eventLogger.logFileUploaded(
+        //                 currentUser.getId(), 
+        //                 newFile.getId(), 
+        //                 newFile.getFilename(),
+        //                 newFile.getSizeInBytes()
+        //             );
+        //             showInfo("Upload Complete", "File uploaded: " + newFile.getFilename());
+        //         });        
+        //     } catch (Exception e) {
+        //         javafx.application.Platform.runLater(() -> {
+        //             progressAlert.close();
+        //             System.err.println("Upload failed: " + e.getMessage());
+        //             showError("Upload Failed", "Failed to upload file: " + e.getMessage());
+        //         });
+        //     }
+        // }).start();   
+             
+        try {
+            File newFile = fileService.uploadFile(currentUser.getId(), chosen.toPath());
+            fileData.add(newFile);
+            fileTable.refresh();
+            eventLogger.logFileUploaded(currentUser.getId(), newFile.getId(), newFile.getFilename(),
+                    newFile.getSizeInBytes());
+        } catch (Exception e) {
+            e.printStackTrace(); 
+            System.err.println("Upload failed: " + e.getMessage());
+            System.err.println("Exception type: " + e.getClass().getName());
+            showError("Upload Failed", "Failed to upload file: " + e.getMessage());
+        }
     }
 
     @FXML
@@ -661,12 +665,12 @@ public class MainController implements Initializable {
         alert.showAndWait();
     }
 
-    private void showInfo(String title, String message) {
-        Alert alert = new Alert(Alert.AlertType.INFORMATION);
-        alert.setTitle(title);
-        alert.setHeaderText(null);
-        alert.setContentText(message);
-        alert.showAndWait();
-    }
+    // private void showInfo(String title, String message) {
+    //     Alert alert = new Alert(Alert.AlertType.INFORMATION);
+    //     alert.setTitle(title);
+    //     alert.setHeaderText(null);
+    //     alert.setContentText(message);
+    //     alert.showAndWait();
+    // }
 
 }
