@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kompose.cmd: C:\Users\hp\AppData\Local\Microsoft\WinGet\Packages\Kubernetes.kompose_Microsoft.Winget.Source_8wekyb3d8bbwe\kompose.exe convert --out k8s/
+    kompose.version: 1.38.0 (a8f5d1cbd)
+  labels:
+    io.kompose.service: aggregator
+  name: aggregator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      io.kompose.service: aggregator
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        kompose.cmd: C:\Users\hp\AppData\Local\Microsoft\WinGet\Packages\Kubernetes.kompose_Microsoft.Winget.Source_8wekyb3d8bbwe\kompose.exe convert --out k8s/
+        kompose.version: 1.38.0 (a8f5d1cbd)
+      labels:
+        io.kompose.service: aggregator
+    spec:
+      containers:
+        - args:
+            - sh
+            - -c
+            - "mvn clean compile && \n       mvn exec:java -Dexec.mainClass=com.example.aggregator.AggregatorApp"
+          env:
+            - name: MAVEN_OPTS
+              value: -Xmx512m
+            - name: MQTT_BROKER_URL
+              value: tcp://filemanager-mqtt:1883
+            - name: SFTP_PORT
+              value: "2222"
+          image: maven:3.9.6-eclipse-temurin-22
+          name: filemanager-aggregator
+          volumeMounts:
+            - mountPath: /app
+              name: aggregator-cm0
+            - mountPath: /app/data
+              name: aggregator-data
+            - mountPath: /root/.m2
+              name: maven-repo
+          workingDir: /app
+      restartPolicy: Always
+      volumes:
+        - configMap:
+            name: aggregator-cm0
+          name: aggregator-cm0
+        - name: aggregator-data
+          persistentVolumeClaim:
+            claimName: aggregator-data
+        - name: maven-repo
+          persistentVolumeClaim:
+            claimName: maven-repo

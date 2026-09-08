@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kompose.cmd: C:\Users\hp\AppData\Local\Microsoft\WinGet\Packages\Kubernetes.kompose_Microsoft.Winget.Source_8wekyb3d8bbwe\kompose.exe convert --out k8s/
+    kompose.version: 1.38.0 (a8f5d1cbd)
+  labels:
+    io.kompose.service: load-balancer
+  name: load-balancer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      io.kompose.service: load-balancer
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        kompose.cmd: C:\Users\hp\AppData\Local\Microsoft\WinGet\Packages\Kubernetes.kompose_Microsoft.Winget.Source_8wekyb3d8bbwe\kompose.exe convert --out k8s/
+        kompose.version: 1.38.0 (a8f5d1cbd)
+      labels:
+        io.kompose.service: load-balancer
+    spec:
+      containers:
+        - args:
+            - sh
+            - -c
+            - "mvn clean compile && \n       mvn exec:java -Dexec.mainClass=com.example.loadbalancer.LoadBalancerApp"
+          env:
+            - name: MAVEN_OPTS
+              value: -Xmx512m
+            - name: MQTT_BROKER_URL
+              value: tcp://filemanager-mqtt:1883
+          image: maven:3.9.6-eclipse-temurin-22
+          name: filemanager-loadbalancer
+          volumeMounts:
+            - mountPath: /app
+              name: load-balancer-cm0
+            - mountPath: /root/.m2
+              name: maven-repo
+          workingDir: /app
+      restartPolicy: Always
+      volumes:
+        - configMap:
+            name: load-balancer-cm0
+          name: load-balancer-cm0
+        - name: maven-repo
+          persistentVolumeClaim:
+            claimName: maven-repo
