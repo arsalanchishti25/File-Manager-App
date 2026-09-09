@@ -3,6 +3,7 @@ package com.example.filestorage;
 import com.example.filestorage.model.ContainerConfig;
 import com.example.filestorage.mqtt.MqttBroker;
 import com.example.filestorage.mqtt.MqttMessageHandler;
+import com.example.filestorage.service.HealthReporter;
 import com.example.filestorage.service.StorageService;
 import com.example.filestorage.sftp.SftpServer;
 import org.eclipse.paho.client.mqttv3.MqttException;
@@ -17,6 +18,7 @@ public class FileStorageApp {
     private static SftpServer sftpServer;
     private static MqttBroker mqttBroker;
     private static MqttMessageHandler messageHandler;
+    private static HealthReporter healthReporter;
 
     public static void main(String[] args) {
         System.out.println("╔════════════════════════════════════════╗");
@@ -77,6 +79,10 @@ public class FileStorageApp {
             messageHandler = new MqttMessageHandler(mqttBroker, storageService);
             messageHandler.startListening();
 
+            // Start heartbeat reporting so Load Balancer knows this container is alive
+            healthReporter = new HealthReporter(config.getContainerId(), mqttBroker);
+            healthReporter.start();
+
             System.out.println("\n╔════════════════════════════════════════╗");
             System.out.println("║   FILE STORAGE CONTAINER READY         ║");
             System.out.println("╚════════════════════════════════════════╝\n");
@@ -87,6 +93,9 @@ public class FileStorageApp {
             // Graceful shutdown hook
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 System.out.println("\n[FileStorageApp] Shutting down gracefully...");
+                if (healthReporter != null) {
+                    healthReporter.stop();
+                }
                 if (mqttBroker != null) {
                     mqttBroker.disconnect();
                 }

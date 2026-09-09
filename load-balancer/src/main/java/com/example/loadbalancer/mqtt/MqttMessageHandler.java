@@ -2,6 +2,7 @@ package com.example.loadbalancer.mqtt;
 
 import com.example.loadbalancer.service.RoutingService;
 import com.example.loadbalancer.service.DeleteCoordinator;
+import com.example.loadbalancer.service.HealthMonitor;
 import com.example.loadbalancer.model.AggregatorInfo;
 import com.example.loadbalancer.model.FSContainerInfo;
 import com.google.gson.JsonObject;
@@ -19,10 +20,12 @@ public class MqttMessageHandler {
     private final RoutingService routingService;
     private final DeleteCoordinator deleteCoordinator;
     private final TopicPublisher topicPublisher;
+    private final HealthMonitor healthMonitor;
 
-    public MqttMessageHandler(MqttBroker mqttBroker, RoutingService routingService) {
+    public MqttMessageHandler(MqttBroker mqttBroker, RoutingService routingService, HealthMonitor healthMonitor) {
         this.mqttBroker = mqttBroker;
         this.routingService = routingService;
+        this.healthMonitor = healthMonitor;
         this.deleteCoordinator = new DeleteCoordinator();
         this.topicPublisher = new TopicPublisher(mqttBroker);
     }
@@ -85,8 +88,8 @@ public class MqttMessageHandler {
             // TODO: Implement aggregator selection logic
             AggregatorInfo aggregator = routingService.selectAggregator();
 
-            // TODO: Implement FS container selection logic
-            List<FSContainerInfo> fsContainers = routingService.selectFSContainers();
+            // Select healthy FS containers (one per volume group)
+            List<FSContainerInfo> fsContainers = routingService.selectFSContainers(healthMonitor);
 
             // Send routing response to Main App
             topicPublisher.publishUploadRoutingResponse(mainAppId, fileId, aggregator, fsContainers);
@@ -114,8 +117,8 @@ public class MqttMessageHandler {
             // TODO: Implement aggregator selection logic
             AggregatorInfo aggregator = routingService.selectAggregator();
 
-            // TODO: Implement FS container selection logic per volume group
-            List<FSContainerInfo> fsContainers = routingService.selectFSContainers();
+            // Select healthy FS containers (one per volume group)
+            List<FSContainerInfo> fsContainers = routingService.selectFSContainers(healthMonitor);
 
             // Send routing response to Main App
             topicPublisher.publishDownloadRoutingResponse(mainAppId, fileId, aggregator, fsContainers);

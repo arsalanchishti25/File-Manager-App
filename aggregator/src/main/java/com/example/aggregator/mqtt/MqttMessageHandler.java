@@ -5,6 +5,7 @@ import com.example.aggregator.model.UploadInstructions;
 import com.example.aggregator.model.DownloadInstructions;
 import com.example.aggregator.service.UploadHandler;
 import com.example.aggregator.service.DownloadHandler;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import org.eclipse.paho.client.mqttv3.MqttException;
 import java.io.File;
@@ -145,22 +146,44 @@ public class MqttMessageHandler {
     /**
      * Send upload complete notification to Main App.
      * Topic: aggregator/upload/complete/{mainAppId}
+     *
+     * mainAppId is read from the instructions file written by UploadManager.
+     * Falls back to a default only if the field is missing (handles legacy files).
      */
     private void sendUploadCompleteNotification(UploadInstructions instructions, List<String> checksums) {
         try {
+            // Read mainAppId from instructions — populated by UploadManager before SFTP transfer
+            String mainAppId = instructions.getMainAppId();
+            if (mainAppId == null || mainAppId.isBlank()) {
+                System.err.println("[MqttMessageHandler] WARNING: mainAppId missing from upload instructions " +
+                                   "for fileId=" + instructions.getFileId() + ". Falling back to 'main-app-1'.");
+                mainAppId = "main-app-1";
+            }
+
+            // Build chunk metadata array so UploadManager can persist it
+            JsonArray chunksArray = new JsonArray();
+            List<UploadInstructions.FSTarget> fsTargets = instructions.getFsContainers();
+            for (int i = 0; i < fsTargets.size() && i < checksums.size(); i++) {
+                UploadInstructions.FSTarget target = fsTargets.get(i);
+                JsonObject chunkJson = new JsonObject();
+                chunkJson.addProperty("chunkOrder", target.getChunkOrder());
+                chunkJson.addProperty("volumeGroup", target.getVolumeGroup());
+                chunkJson.addProperty("fsId", target.getFsId());
+                chunkJson.addProperty("crc32", checksums.get(i));
+                chunksArray.add(chunkJson);
+            }
+
             JsonObject notification = new JsonObject();
             notification.addProperty("fileId", instructions.getFileId());
             notification.addProperty("status", "complete");
             notification.addProperty("aggregatorId", config.getAggregatorId());
+            notification.add("chunks", chunksArray);
 
-            // TODO: Get mainAppId from instructions
-            String mainAppId = "main-app-1";  // Placeholder
             String topic = "aggregator/upload/complete/" + mainAppId;
-
             mqttBroker.publish(topic, notification.toString());
 
-            System.out.println("[MqttMessageHandler] Sent upload complete notification for fileId: " + 
-                             instructions.getFileId());
+            System.out.println("[MqttMessageHandler] Sent upload complete notification to topic: " + topic +
+                               " for fileId: " + instructions.getFileId());
 
         } catch (MqttException e) {
             System.err.println("[MqttMessageHandler] Failed to send upload notification: " + e.getMessage());
@@ -170,23 +193,30 @@ public class MqttMessageHandler {
     /**
      * Send download complete notification to Main App.
      * Topic: aggregator/download/complete/{mainAppId}
+     *
+     * mainAppId is read from the retrieval_instructions file written by DownloadManager.
      */
     private void sendDownloadCompleteNotification(DownloadInstructions instructions, File reassembledFile) {
         try {
+            // Read mainAppId from instructions — populated by DownloadManager before SFTP transfer
+            String mainAppId = instructions.getMainAppId();
+            if (mainAppId == null || mainAppId.isBlank()) {
+                System.err.println("[MqttMessageHandler] WARNING: mainAppId missing from download instructions " +
+                                   "for fileId=" + instructions.getFileId() + ". Falling back to 'main-app-1'.");
+                mainAppId = "main-app-1";
+            }
+
             JsonObject notification = new JsonObject();
             notification.addProperty("fileId", instructions.getFileId());
             notification.addProperty("status", "ready");
             notification.addProperty("filename", reassembledFile.getName());
             notification.addProperty("aggregatorId", config.getAggregatorId());
 
-            // TODO: Get mainAppId from instructions
-            String mainAppId = "main-app-1";  // Placeholder
             String topic = "aggregator/download/complete/" + mainAppId;
-
             mqttBroker.publish(topic, notification.toString());
 
-            System.out.println("[MqttMessageHandler] Sent download complete notification for fileId: " + 
-                             instructions.getFileId());
+            System.out.println("[MqttMessageHandler] Sent download complete notification to topic: " + topic +
+                               " for fileId: " + instructions.getFileId());
 
         } catch (MqttException e) {
             System.err.println("[MqttMessageHandler] Failed to send download notification: " + e.getMessage());

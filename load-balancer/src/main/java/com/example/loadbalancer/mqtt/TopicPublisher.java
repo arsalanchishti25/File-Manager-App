@@ -89,25 +89,44 @@ public class TopicPublisher {
     }
 
     /**
-     * Publish delete commands to FS containers.
-     * Topic: fs/delete/{fsId}
+     * Publish delete commands to the relevant FS containers.
+     *
+     * Each chunk in the array carries the fsId that holds it (populated by
+     * RoutingService when the file was uploaded). We send a targeted delete
+     * command to each fsId's topic rather than broadcasting to all containers.
+     *
+     * Topic: fs/delete/{fsId}   — fsId matches FS_CONTAINER_ID env var (e.g. "fs-1")
      */
     public void publishDeleteCommands(long fileId, JsonArray chunks) throws MqttException {
-        // For now, send to hardcoded FS containers
-        String[] fsIds = {"fs-1", "fs-2", "fs-3", "fs-4"};
-
-        for (String fsId : fsIds) {
-            JsonObject deleteCmd = new JsonObject();
-            deleteCmd.addProperty("fileId", fileId);
-            deleteCmd.addProperty("fsId", fsId);
-            // TODO: Add chunk order based on volume group
-            deleteCmd.addProperty("chunkOrder", 0);
-
-            String topic = "fs/delete/" + fsId;
-            mqttBroker.publish(topic, deleteCmd.toString());
-
-            System.out.println("[TopicPublisher] Sent delete command to " + fsId);
+        if (chunks == null || chunks.size() == 0) {
+            // Fallback: broadcast to all four containers if no chunk metadata available
+            System.err.println("[TopicPublisher] No chunk metadata for fileId=" + fileId +
+                               ". Broadcasting delete to all FS containers.");
+            String[] allFsIds = {"fs-1", "fs-2", "fs-3", "fs-4"};
+            for (String fsId : allFsIds) {
+                sendDeleteCommand(fileId, fsId, 0);
+            }
+            return;
         }
+
+        for (int i = 0; i < chunks.size(); i++) {
+            JsonObject chunk = chunks.get(i).getAsJsonObject();
+            String fsId = chunk.has("fsId") ? chunk.get("fsId").getAsString() : "fs-" + (i + 1);
+            int chunkOrder = chunk.has("chunkOrder") ? chunk.get("chunkOrder").getAsInt() : (i + 1);
+            sendDeleteCommand(fileId, fsId, chunkOrder);
+        }
+    }
+
+    private void sendDeleteCommand(long fileId, String fsId, int chunkOrder) throws MqttException {
+        JsonObject deleteCmd = new JsonObject();
+        deleteCmd.addProperty("fileId", fileId);
+        deleteCmd.addProperty("fsId", fsId);
+        deleteCmd.addProperty("chunkOrder", chunkOrder);
+
+        String topic = "fs/delete/" + fsId;
+        mqttBroker.publish(topic, deleteCmd.toString());
+        System.out.println("[TopicPublisher] Sent delete command to " + topic +
+                           " for fileId=" + fileId + ", chunkOrder=" + chunkOrder);
     }
 
     /**

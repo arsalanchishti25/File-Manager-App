@@ -2,6 +2,7 @@ package com.example.loadbalancer;
 
 import com.example.loadbalancer.mqtt.MqttBroker;
 import com.example.loadbalancer.mqtt.MqttMessageHandler;
+import com.example.loadbalancer.service.HealthMonitor;
 import com.example.loadbalancer.service.RoutingService;
 import org.eclipse.paho.client.mqttv3.MqttException;
 
@@ -13,6 +14,7 @@ public class LoadBalancerApp {
 
     private static MqttBroker mqttBroker;
     private static MqttMessageHandler messageHandler;
+    private static HealthMonitor healthMonitor;
 
     public static void main(String[] args) {
         System.out.println("╔════════════════════════════════════════╗");
@@ -36,8 +38,18 @@ public class LoadBalancerApp {
             // Initialize Routing Service
             RoutingService routingService = new RoutingService();
 
+            // Initialize Health Monitor and start heartbeat tracking
+            healthMonitor = new HealthMonitor();
+            // Register the initial static containers (matches Docker Compose service names)
+            healthMonitor.registerContainer("fs-1");
+            healthMonitor.registerContainer("fs-2");
+            healthMonitor.registerContainer("fs-3");
+            healthMonitor.registerContainer("fs-4");
+            healthMonitor.registerContainer("agg-1");
+            healthMonitor.start(mqttBroker);
+
             // Initialize Message Handler
-            messageHandler = new MqttMessageHandler(mqttBroker, routingService);
+            messageHandler = new MqttMessageHandler(mqttBroker, routingService, healthMonitor);
             
             // Also subscribe to delete responses
             mqttBroker.subscribe("fs/delete/response", (topic, message) -> {
@@ -56,6 +68,9 @@ public class LoadBalancerApp {
             // Graceful shutdown hook
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 System.out.println("\n[LoadBalancerApp] Shutting down gracefully...");
+                if (healthMonitor != null) {
+                    healthMonitor.stop();
+                }
                 if (mqttBroker != null) {
                     mqttBroker.disconnect();
                 }

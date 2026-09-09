@@ -101,6 +101,7 @@ public class UploadManager {
             instructions.addProperty("fileId", file.getId());
             instructions.addProperty("filename", filename);
             instructions.addProperty("fileSize", fileSize);
+            instructions.addProperty("mainAppId", mainAppId);  // Aggregator reads this to route the completion notification
             instructions.add("fsContainers", fsContainersArray);
 
             // FIXED: Save as instructions.json (not manifest.json)

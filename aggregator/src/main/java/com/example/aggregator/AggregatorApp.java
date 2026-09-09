@@ -3,6 +3,7 @@ package com.example.aggregator;
 import com.example.aggregator.model.AggregatorConfig;
 import com.example.aggregator.mqtt.MqttBroker;
 import com.example.aggregator.mqtt.MqttMessageHandler;
+import com.example.aggregator.service.HealthReporter;
 import com.example.aggregator.sftp.SftpServer;
 import java.io.IOException;
 
@@ -15,6 +16,7 @@ public class AggregatorApp {
     private static SftpServer sftpServer;
     private static MqttBroker mqttBroker;
     private static MqttMessageHandler messageHandler;
+    private static HealthReporter healthReporter;
 
     public static void main(String[] args) {
         System.out.println("╔════════════════════════════════════════╗");
@@ -65,6 +67,10 @@ public class AggregatorApp {
             messageHandler = new MqttMessageHandler(mqttBroker, config);
             messageHandler.startMonitoring();
 
+            // Start heartbeat reporting so Load Balancer knows this aggregator is alive
+            healthReporter = new HealthReporter(config.getAggregatorId(), mqttBroker);
+            healthReporter.start();
+
             System.out.println("\n╔════════════════════════════════════════╗");
             System.out.println("║      AGGREGATOR CONTAINER READY        ║");
             System.out.println("╚════════════════════════════════════════╝\n");
@@ -75,6 +81,9 @@ public class AggregatorApp {
             // Graceful shutdown hook
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 System.out.println("\n[AggregatorApp] Shutting down gracefully...");
+                if (healthReporter != null) {
+                    healthReporter.stop();
+                }
                 if (messageHandler != null) {
                     messageHandler.stopMonitoring();
                 }

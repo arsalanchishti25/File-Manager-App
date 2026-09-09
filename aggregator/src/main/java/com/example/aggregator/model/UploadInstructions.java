@@ -9,6 +9,7 @@ public class UploadInstructions {
     private long fileId;
     private String filename;
     private long fileSize;
+    private String mainAppId;  // Added: identifies which Main App instance initiated this upload
     private List<FSTarget> fsContainers;
 
     public static class FSTarget {
@@ -94,6 +95,14 @@ public class UploadInstructions {
         this.fileSize = fileSize;
     }
 
+    public String getMainAppId() {
+        return mainAppId;
+    }
+
+    public void setMainAppId(String mainAppId) {
+        this.mainAppId = mainAppId;
+    }
+
     public List<FSTarget> getFsContainers() {
         return fsContainers;
     }
@@ -108,6 +117,7 @@ public class UploadInstructions {
                 "fileId=" + fileId +
                 ", filename='" + filename + '\'' +
                 ", fileSize=" + fileSize +
+                ", mainAppId='" + mainAppId + '\'' +
                 ", fsContainers=" + fsContainers +
                 '}';
     }

@@ -114,6 +114,7 @@ public class DownloadManager {
             JsonObject instructions = new JsonObject();
             instructions.addProperty("fileId", fileId);
             instructions.addProperty("filename", file.getFilename());
+            instructions.addProperty("mainAppId", mainAppId);  // Aggregator reads this to route the completion notification
             instructions.add("chunks", selectedFSContainers);  // FIXED: Use LB's selection
 
             Path instructionsPath = Paths.get("data/temp/downloads/retrieval_instructions_" + fileId + ".json");

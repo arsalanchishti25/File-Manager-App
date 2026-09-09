@@ -8,6 +8,7 @@ import java.util.List;
 public class DownloadInstructions {
     private long fileId;
     private String filename;
+    private String mainAppId;  // Added: identifies which Main App instance initiated this download
     private List<ChunkLocation> chunks;
 
     public static class ChunkLocation {
@@ -85,6 +86,14 @@ public class DownloadInstructions {
         this.filename = filename;
     }
 
+    public String getMainAppId() {
+        return mainAppId;
+    }
+
+    public void setMainAppId(String mainAppId) {
+        this.mainAppId = mainAppId;
+    }
+
     public List<ChunkLocation> getChunks() {
         return chunks;
     }
@@ -98,6 +107,7 @@ public class DownloadInstructions {
         return "DownloadInstructions{" +
                 "fileId=" + fileId +
                 ", filename='" + filename + '\'' +
+                ", mainAppId='" + mainAppId + '\'' +
                 ", chunks=" + chunks +
                 '}';
     }

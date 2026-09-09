@@ -18,7 +18,7 @@ services:
     
     volumes:
       - mysql-data:/var/lib/mysql
-      - ./config/mysql-init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./config/mysql-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     
     networks:
       - filemanager-network
@@ -78,6 +78,7 @@ services:
       MYSQL_PASSWORD: fileapp123
       MQTT_BROKER_URL: tcp://filemanager-mqtt:1883
       SQLITE_DB_PATH: /app/data/fileapp.db
+      MAIN_APP_ID: main-app-1
         
     networks:
       - filemanager-network
@@ -137,8 +138,10 @@ services:
     working_dir: /app
 
     environment:
+      AGGREGATOR_ID: agg-1
       MQTT_BROKER_URL: tcp://filemanager-mqtt:1883
       SFTP_PORT: "2222"
+      WORKING_DIR: /app/data
       MAVEN_OPTS: "-Xmx512m"
     
     networks:
@@ -182,7 +185,8 @@ services:
     working_dir: /app
     
     environment:
-      CONTAINER_ID: storage-1
+      FS_CONTAINER_ID: fs-1          # Read by FileStorageApp.java
+      CONTAINER_ID: storage-1        # Legacy, kept for reference
       CONTAINER_INDEX: "1"
       VOLUME_GROUP: "1"
       MQTT_BROKER_URL: tcp://filemanager-mqtt:1883
@@ -216,7 +220,8 @@ services:
     working_dir: /app
 
     environment:
-      CONTAINER_ID: storage-2
+      FS_CONTAINER_ID: fs-2          # Read by FileStorageApp.java
+      CONTAINER_ID: storage-2        # Legacy, kept for reference
       CONTAINER_INDEX: "2"
       VOLUME_GROUP: "2"
       MQTT_BROKER_URL: tcp://filemanager-mqtt:1883
@@ -251,7 +256,8 @@ services:
     working_dir: /app
 
     environment:
-      CONTAINER_ID: storage-3
+      FS_CONTAINER_ID: fs-3          # Read by FileStorageApp.java
+      CONTAINER_ID: storage-3        # Legacy, kept for reference
       CONTAINER_INDEX: "3"
       VOLUME_GROUP: "3"
       MQTT_BROKER_URL: tcp://filemanager-mqtt:1883
@@ -285,7 +291,8 @@ services:
     working_dir: /app
 
     environment:
-      CONTAINER_ID: storage-4
+      FS_CONTAINER_ID: fs-4          # Read by FileStorageApp.java
+      CONTAINER_ID: storage-4        # Legacy, kept for reference
       CONTAINER_INDEX: "4"
       VOLUME_GROUP: "4"
       MQTT_BROKER_URL: tcp://filemanager-mqtt:1883
