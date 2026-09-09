@@ -1,0 +1,33 @@
+# Maven build output
+**/target/
+*.class
+*.jar
+*.war
+*.ear
+
+# Local databases and logs
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.iml
+.DS_Store
+
+# Secrets / local env
+.env
+.env.*
+
+# Runtime data
+main-app/data/
+
+# Test reports
+**/surefire-reports/
+**/failsafe-reports/
+
+# Compose leftovers
+*.override.yml
+docker-compose.override.yml
