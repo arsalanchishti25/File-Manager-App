@@ -20,6 +20,7 @@
 # Secrets / local env
 .env
 .env.*
+!.env.example
 
 # Runtime data
 main-app/data/
