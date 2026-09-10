@@ -5,9 +5,12 @@ import com.example.loadbalancer.service.DeleteCoordinator;
 import com.example.loadbalancer.service.HealthMonitor;
 import com.example.loadbalancer.model.AggregatorInfo;
 import com.example.loadbalancer.model.FSContainerInfo;
+import com.example.loadbalancer.model.OperationRequest;
+import com.example.loadbalancer.model.ErrorResponse;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonArray;
 import org.eclipse.paho.client.mqttv3.MqttException;
+import org.eclipse.paho.client.mqttv3.IMqttMessageListener;
 import java.util.List;
 
 /**
@@ -34,11 +37,13 @@ public class MqttMessageHandler {
      * Start listening to operations/request topic.
      */
     public void startListening() throws MqttException {
-        mqttBroker.subscribe("operations/request", (topic, message) -> {
+        IMqttMessageListener listener = (topic, message) -> {
             String payload = new String(message.getPayload());
             System.out.println("\n[MqttMessageHandler] Received request: " + payload);
             handleOperationRequest(payload);
-        });
+        };
+        mqttBroker.subscribe(TopicConstants.OPERATIONS_REQUEST, listener);
+        mqttBroker.subscribe(TopicConstants.LEGACY_OPERATIONS_REQUEST, listener);
     }
 
     /**
@@ -47,28 +52,40 @@ public class MqttMessageHandler {
     private void handleOperationRequest(String payload) {
         try {
             JsonObject request = mqttBroker.getGson().fromJson(payload, JsonObject.class);
-            String operation = request.get("operation").getAsString();
-            String mainAppId = request.has("mainAppId") ? request.get("mainAppId").getAsString() : "unknown";
+            OperationRequest parsed = OperationRequest.parse(request);
+            String operation = parsed.getOperation();
+            String mainAppId = parsed.getMainAppId();
 
             System.out.println("[MqttMessageHandler] Processing operation: " + operation + 
                              " from mainAppId: " + mainAppId);
 
             switch (operation.toUpperCase()) {
                 case "UPLOAD":
-                    handleUploadRequest(request, mainAppId);
+                    handleUploadRequest(request, parsed);
                     break;
                 case "DOWNLOAD":
-                    handleDownloadRequest(request, mainAppId);
+                    handleDownloadRequest(request, parsed);
                     break;
                 case "DELETE":
-                    handleDeleteRequest(request, mainAppId);
+                    handleDeleteRequest(request, parsed);
                     break;
                 default:
                     System.err.println("[MqttMessageHandler] Unknown operation: " + operation);
             }
         } catch (Exception e) {
             System.err.println("[MqttMessageHandler] Error handling request: " + e.getMessage());
-            e.printStackTrace();
+            publishError(null, null, null, "INVALID_JSON", "Invalid operation request");
+        }
+    }
+
+    private void publishError(String operationId, String correlationId, String mainAppId,
+                              String code, String message) {
+        try {
+            mqttBroker.publish(TopicConstants.ERROR_EVENTS,
+                    mqttBroker.getGson().toJson(new ErrorResponse(operationId, correlationId,
+                            mainAppId, "load-balancer", code, message)));
+        } catch (MqttException e) {
+            System.err.println("[MqttMessageHandler] Failed to publish error: " + e.getMessage());
         }
     }
 
@@ -76,11 +93,11 @@ public class MqttMessageHandler {
      * Handle UPLOAD request.
      * Route to Aggregator and 4 FS containers.
      */
-    private void handleUploadRequest(JsonObject request, String mainAppId) {
+    private void handleUploadRequest(JsonObject request, OperationRequest parsed) {
         try {
-            long fileId = request.get("fileId").getAsLong();
-            String filename = request.get("filename").getAsString();
-            long fileSize = request.get("fileSize").getAsLong();
+            long fileId = parsed.getFileId();
+            String filename = parsed.getFilename();
+            long fileSize = parsed.getFileSize();
 
             System.out.println("[MqttMessageHandler] UPLOAD request: fileId=" + fileId + 
                              ", filename=" + filename + ", size=" + fileSize);
@@ -92,7 +109,8 @@ public class MqttMessageHandler {
             List<FSContainerInfo> fsContainers = routingService.selectFSContainers(healthMonitor);
 
             // Send routing response to Main App
-            topicPublisher.publishUploadRoutingResponse(mainAppId, fileId, aggregator, fsContainers);
+            topicPublisher.publishUploadRoutingResponse(parsed.getMainAppId(), parsed.getOperationId(),
+                    parsed.getCorrelationId(), fileId, aggregator, fsContainers);
 
             System.out.println("[MqttMessageHandler] UPLOAD routing sent for fileId=" + fileId);
 
@@ -106,9 +124,9 @@ public class MqttMessageHandler {
      * Handle DOWNLOAD request.
      * Route to Aggregator for reassembly.
      */
-    private void handleDownloadRequest(JsonObject request, String mainAppId) {
+    private void handleDownloadRequest(JsonObject request, OperationRequest parsed) {
         try {
-            long fileId = request.get("fileId").getAsLong();
+            long fileId = parsed.getFileId();
             JsonArray chunks = request.getAsJsonArray("chunks");
 
             System.out.println("[MqttMessageHandler] DOWNLOAD request: fileId=" + fileId + 
@@ -121,7 +139,8 @@ public class MqttMessageHandler {
             List<FSContainerInfo> fsContainers = routingService.selectFSContainers(healthMonitor);
 
             // Send routing response to Main App
-            topicPublisher.publishDownloadRoutingResponse(mainAppId, fileId, aggregator, fsContainers);
+            topicPublisher.publishDownloadRoutingResponse(parsed.getMainAppId(), parsed.getOperationId(),
+                    parsed.getCorrelationId(), fileId, aggregator, fsContainers);
 
             System.out.println("[MqttMessageHandler] DOWNLOAD routing sent for fileId=" + fileId);
 
@@ -135,9 +154,10 @@ public class MqttMessageHandler {
      * Handle DELETE request.
      * Coordinate deletion across FS containers.
      */
-    private void handleDeleteRequest(JsonObject request, String mainAppId) {
+    private void handleDeleteRequest(JsonObject request, OperationRequest parsed) {
         try {
-            long fileId = request.get("fileId").getAsLong();
+            long fileId = parsed.getFileId();
+            String mainAppId = parsed.getMainAppId();
             JsonArray chunks = request.getAsJsonArray("chunks");
 
             System.out.println("[MqttMessageHandler] DELETE request: fileId=" + fileId + 
@@ -152,16 +172,19 @@ public class MqttMessageHandler {
             deleteCoordinator.initiateDelete(fileId, totalFSContainers);
 
             // Send delete commands to all FS containers
-            topicPublisher.publishDeleteCommands(fileId, chunks);
+            topicPublisher.publishDeleteCommands(fileId, parsed.getOperationId(),
+                    parsed.getCorrelationId(), mainAppId, chunks);
 
             // Wait for all confirmations (timeout: 30 seconds)
             boolean completed = deleteCoordinator.waitForDeleteCompletion(fileId, 30);
 
             if (completed) {
-                topicPublisher.publishDeleteResponse(mainAppId, fileId, true, "All chunks deleted");
+                topicPublisher.publishDeleteResponse(mainAppId, parsed.getOperationId(),
+                        parsed.getCorrelationId(), fileId, true, "All chunks deleted");
                 System.out.println("[MqttMessageHandler] DELETE completed for fileId=" + fileId);
             } else {
-                topicPublisher.publishDeleteResponse(mainAppId, fileId, false, "Timeout waiting for FS confirmations");
+                topicPublisher.publishDeleteResponse(mainAppId, parsed.getOperationId(),
+                        parsed.getCorrelationId(), fileId, false, "Timeout waiting for FS confirmations");
                 System.err.println("[MqttMessageHandler] DELETE timeout for fileId=" + fileId);
             }
 

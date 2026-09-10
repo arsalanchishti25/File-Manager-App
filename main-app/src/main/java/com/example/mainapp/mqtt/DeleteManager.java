@@ -68,7 +68,8 @@ public class DeleteManager {
 
             // Send MQTT delete request to Load Balancer
             // FIXED: Use operations/request (not direct to FS containers)
-            JsonObject deleteRequest = new JsonObject();
+            OperationRequest operationRequest = new OperationRequest("DELETE", mainAppId, fileId, userId);
+            JsonObject deleteRequest = operationRequest.toJson();
             deleteRequest.addProperty("operation", "DELETE");
             deleteRequest.addProperty("fileId", fileId);
             deleteRequest.addProperty("userId", userId);
@@ -76,9 +77,9 @@ public class DeleteManager {
             deleteRequest.add("chunks", chunkInfo);
 
             // FIXED: Wait for LB confirmation on operations/response/{mainAppId}
-            String responseTopic = "operations/response/" + mainAppId;
+            String responseTopic = TopicConstants.operationsResponse(mainAppId);
             String lbResponse = mqttClient.publishAndWaitForResponse(
-                "operations/request",  // FIXED: Correct topic
+                TopicConstants.OPERATIONS_REQUEST,
                 responseTopic,
                 deleteRequest.toString(),
                 30000  // 30s timeout (LB needs to coordinate with multiple FS containers)

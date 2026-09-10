@@ -9,6 +9,9 @@ public class DownloadInstructions {
     private long fileId;
     private String filename;
     private String mainAppId;  // Added: identifies which Main App instance initiated this download
+    private String operationId;
+    private String correlationId;
+    private String sourceServiceId;
     private List<ChunkLocation> chunks;
 
     public static class ChunkLocation {
@@ -93,6 +96,12 @@ public class DownloadInstructions {
     public void setMainAppId(String mainAppId) {
         this.mainAppId = mainAppId;
     }
+    public String getOperationId() { return operationId; }
+    public void setOperationId(String operationId) { this.operationId = operationId; }
+    public String getCorrelationId() { return correlationId; }
+    public void setCorrelationId(String correlationId) { this.correlationId = correlationId; }
+    public String getSourceServiceId() { return sourceServiceId; }
+    public void setSourceServiceId(String sourceServiceId) { this.sourceServiceId = sourceServiceId; }
 
     public List<ChunkLocation> getChunks() {
         return chunks;
