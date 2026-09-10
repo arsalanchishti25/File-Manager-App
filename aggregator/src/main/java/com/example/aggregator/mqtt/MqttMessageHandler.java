@@ -1,5 +1,6 @@
 package com.example.aggregator.mqtt;
 
+import com.example.aggregator.config.AggregatorAppConfig;
 import com.example.aggregator.model.AggregatorConfig;
 import com.example.aggregator.model.UploadInstructions;
 import com.example.aggregator.model.DownloadInstructions;
@@ -27,11 +28,11 @@ public class MqttMessageHandler {
     private final DownloadHandler downloadHandler;
     private volatile boolean running = false;
 
-    public MqttMessageHandler(MqttBroker mqttBroker, AggregatorConfig config) {
+    public MqttMessageHandler(MqttBroker mqttBroker, AggregatorAppConfig appConfig) {
         this.mqttBroker = mqttBroker;
-        this.config = config;
-        this.uploadHandler = new UploadHandler(config.getWorkingDirectory());
-        this.downloadHandler = new DownloadHandler(config.getWorkingDirectory());
+        this.config = appConfig.toModel();
+        this.uploadHandler = new UploadHandler(config.getWorkingDirectory(), appConfig);
+        this.downloadHandler = new DownloadHandler(config.getWorkingDirectory(), appConfig);
     }
 
     /**
@@ -148,16 +149,13 @@ public class MqttMessageHandler {
      * Topic: aggregator/upload/complete/{mainAppId}
      *
      * mainAppId is read from the instructions file written by UploadManager.
-     * Falls back to a default only if the field is missing (handles legacy files).
      */
     private void sendUploadCompleteNotification(UploadInstructions instructions, List<String> checksums) {
         try {
             // Read mainAppId from instructions — populated by UploadManager before SFTP transfer
             String mainAppId = instructions.getMainAppId();
             if (mainAppId == null || mainAppId.isBlank()) {
-                System.err.println("[MqttMessageHandler] WARNING: mainAppId missing from upload instructions " +
-                                   "for fileId=" + instructions.getFileId() + ". Falling back to 'main-app-1'.");
-                mainAppId = "main-app-1";
+                throw new IllegalArgumentException("Missing required mainAppId in upload instructions");
             }
 
             // Build chunk metadata array so UploadManager can persist it
@@ -201,9 +199,7 @@ public class MqttMessageHandler {
             // Read mainAppId from instructions — populated by DownloadManager before SFTP transfer
             String mainAppId = instructions.getMainAppId();
             if (mainAppId == null || mainAppId.isBlank()) {
-                System.err.println("[MqttMessageHandler] WARNING: mainAppId missing from download instructions " +
-                                   "for fileId=" + instructions.getFileId() + ". Falling back to 'main-app-1'.");
-                mainAppId = "main-app-1";
+                throw new IllegalArgumentException("Missing required mainAppId in download instructions");
             }
 
             JsonObject notification = new JsonObject();

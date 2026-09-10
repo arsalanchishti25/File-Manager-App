@@ -1,6 +1,7 @@
 // src/main/java/com/example/mainapp/mqtt/UploadManager.java
 package com.example.mainapp.mqtt;
 
+import com.example.mainapp.config.MainAppConfig;
 import com.example.mainapp.model.File;
 import com.example.mainapp.repository.FileRepository;
 import com.example.mainapp.sftp.SftpClient;
@@ -115,7 +116,9 @@ public class UploadManager {
             // FIXED: Use standard naming that Aggregator expects
             SftpClient sftpClient = new SftpClient(mainAppId);
             try {
-                sftpClient.connect(aggregatorIp, aggregatorPort, "sftpuser", "sftppass");
+                MainAppConfig config = MainAppConfig.getInstance();
+                sftpClient.connect(aggregatorIp, aggregatorPort,
+                        config.requireSftpUser(), config.requireSftpPassword());
                 
                 // Upload original file with standard naming
                 String remoteFilename = "fileId_" + file.getId() + ".bin";

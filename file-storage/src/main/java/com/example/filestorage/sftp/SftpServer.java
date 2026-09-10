@@ -19,9 +19,14 @@ public class SftpServer {
     private final int port;
     private final String storageBasePath;
     private final String containerId;
+    private final String sftpUser;
+    private final String sftpPassword;
 
-    public SftpServer(String containerId, int port, String storageBasePath) {
+    public SftpServer(String containerId, int port, String storageBasePath,
+                      String sftpUser, String sftpPassword) {
         this.containerId = containerId;
+        this.sftpUser = sftpUser;
+        this.sftpPassword = sftpPassword;
         this.port = port;
         this.storageBasePath = storageBasePath;
         this.sshServer = SshServer.setUpDefaultServer();
@@ -42,7 +47,7 @@ public class SftpServer {
         keyProvider.setAlgorithm("RSA");
         sshServer.setKeyPairProvider(keyProvider);
         // Set password authenticator
-        sshServer.setPasswordAuthenticator(new SftpUserInfo());
+        sshServer.setPasswordAuthenticator(new SftpUserInfo(sftpUser, sftpPassword));
 
         // Set SFTP subsystem factory
         sshServer.setSubsystemFactories(Collections.singletonList(new SftpSubsystemFactory()));

@@ -1,9 +1,10 @@
 package com.example.aggregator.service;
 
+import com.example.aggregator.config.AggregatorAppConfig;
 import javax.crypto.*;
 import javax.crypto.spec.SecretKeySpec;
 import java.security.*;
-// import java.util.Base64;
+import java.util.Base64;
 
 /**
  * Handles AES-256 encryption and decryption of chunks.
@@ -12,6 +13,24 @@ public class EncryptionService {
 
     private static final String ALGORITHM = "AES";
     private static final int KEY_SIZE = 256;
+    private final SecretKey configuredKey;
+
+    public EncryptionService() {
+        this(AggregatorAppConfig.fromEnv());
+    }
+
+    public EncryptionService(AggregatorAppConfig config) {
+        byte[] keyBytes;
+        try {
+            keyBytes = Base64.getDecoder().decode(config.requireEncryptionKey());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalStateException("Invalid ENCRYPTION_KEY: expected Base64", e);
+        }
+        if (keyBytes.length != 16 && keyBytes.length != 24 && keyBytes.length != 32) {
+            throw new IllegalStateException("Invalid ENCRYPTION_KEY: decoded key must be 16, 24, or 32 bytes");
+        }
+        this.configuredKey = new SecretKeySpec(keyBytes, ALGORITHM);
+    }
 
     /**
      * Generate a new AES-256 key.
@@ -30,13 +49,8 @@ public class EncryptionService {
      * Get a hardcoded key for testing.
      * TODO: Replace with proper key retrieval from secure storage
      */
-    public SecretKey getHardcodedKey() {
-        // Hardcoded 256-bit key (32 bytes) for testing
-        byte[] keyBytes = "12345678901234567890123456789012".getBytes();
-        SecretKey key = new SecretKeySpec(keyBytes, ALGORITHM);
-        
-        System.out.println("[EncryptionService] Using hardcoded key (TODO: implement proper key management)");
-        return key;
+    public SecretKey getConfiguredKey() {
+        return configuredKey;
     }
 
     /**

@@ -1,6 +1,7 @@
 package com.example.aggregator.service;
 
 import com.example.aggregator.model.UploadInstructions;
+import com.example.aggregator.config.AggregatorAppConfig;
 import com.example.aggregator.sftp.SftpClient;
 // import com.google.gson.Gson;
 import javax.crypto.SecretKey;
@@ -24,12 +25,16 @@ public class UploadHandler {
     private final ChunkService chunkService;
     private final EncryptionService encryptionService;
     private final String workingDir;
+    private final String sftpUser;
+    private final String sftpPassword;
     // private final Gson gson;
 
-    public UploadHandler(String workingDir) {
+    public UploadHandler(String workingDir, AggregatorAppConfig config) {
         this.workingDir = workingDir;
         this.chunkService = new ChunkService();
-        this.encryptionService = new EncryptionService();
+        this.encryptionService = new EncryptionService(config);
+        this.sftpUser = config.requireSftpUser();
+        this.sftpPassword = config.requireSftpPassword();
         // this.gson = new Gson();
     }
 
@@ -49,7 +54,7 @@ public class UploadHandler {
 
         // Step 2: Encrypt each chunk
         System.out.println("\n[UploadHandler] Step 2: Encrypting chunks...");
-        SecretKey encryptionKey = encryptionService.getHardcodedKey();  // TODO: Use proper key management
+        SecretKey encryptionKey = encryptionService.getConfiguredKey();
         File[] encryptedChunks = new File[4];
         
         for (int i = 0; i < 4; i++) {
@@ -107,7 +112,8 @@ public class UploadHandler {
      * TODO: Implement actual SFTP connection and upload
      */
     private void uploadChunkToFS(File chunkFile, UploadInstructions.FSTarget target) throws Exception {
-        SftpClient sftpClient = new SftpClient(target.getIp(), target.getPort(), "user", "password");
+        SftpClient sftpClient = new SftpClient(target.getIp(), target.getPort(),
+                sftpUser, sftpPassword);
         
         try {
             sftpClient.connect();

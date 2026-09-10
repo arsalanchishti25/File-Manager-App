@@ -1,6 +1,7 @@
 package com.example.aggregator.service;
 
 import com.example.aggregator.model.DownloadInstructions;
+import com.example.aggregator.config.AggregatorAppConfig;
 import com.example.aggregator.sftp.SftpClient;
 import javax.crypto.SecretKey;
 import java.io.File;
@@ -19,11 +20,15 @@ public class DownloadHandler {
     private final ChunkService chunkService;
     private final EncryptionService encryptionService;
     private final String workingDir;
+    private final String sftpUser;
+    private final String sftpPassword;
 
-    public DownloadHandler(String workingDir) {
+    public DownloadHandler(String workingDir, AggregatorAppConfig config) {
         this.workingDir = workingDir;
         this.chunkService = new ChunkService();
-        this.encryptionService = new EncryptionService();
+        this.encryptionService = new EncryptionService(config);
+        this.sftpUser = config.requireSftpUser();
+        this.sftpPassword = config.requireSftpPassword();
     }
 
     /**
@@ -68,7 +73,7 @@ public class DownloadHandler {
 
         // Step 3: Decrypt chunks
         System.out.println("\n[DownloadHandler] Step 3: Decrypting chunks...");
-        SecretKey encryptionKey = encryptionService.getHardcodedKey();  // TODO: Use proper key management
+        SecretKey encryptionKey = encryptionService.getConfiguredKey();
         File[] decryptedChunks = new File[4];
         
         for (int i = 0; i < 4; i++) {
@@ -110,7 +115,8 @@ public class DownloadHandler {
      * TODO: Implement actual SFTP connection and download
      */
     private void downloadChunkFromFS(File localFile, DownloadInstructions.ChunkLocation chunkLoc) throws Exception {
-        SftpClient sftpClient = new SftpClient(chunkLoc.getIp(), chunkLoc.getPort(), "user", "password");
+        SftpClient sftpClient = new SftpClient(chunkLoc.getIp(), chunkLoc.getPort(),
+                sftpUser, sftpPassword);
         
         try {
             sftpClient.connect();

@@ -1,5 +1,6 @@
 package com.example.mainapp.controller;
 
+import com.example.mainapp.config.MainAppConfig;
 import com.example.mainapp.db.RemoteMySQLDataSource;
 import com.example.mainapp.logging.MysqlEventLogger;
 import com.example.mainapp.model.User;
@@ -38,11 +39,7 @@ public class LoginController {
     @FXML
     public void initialize() {
         try {
-            // Get MQTT config
-            String brokerUrl = System.getenv("MQTT_BROKER_URL");
-            if (brokerUrl == null) brokerUrl = "tcp://filemanager-mqtt:1883";
-            
-            String mainAppId = "main-app-" + System.currentTimeMillis();
+            MainAppConfig config = MainAppConfig.getInstance();
 
             // Initialize connectivity service
             this.connectivityService = new ConnectivityService();
@@ -58,7 +55,7 @@ public class LoginController {
             );
 
             // CHANGE 3: Initialize SyncService with MQTT parameters
-            this.syncService = new SyncService(brokerUrl, mainAppId);
+            this.syncService = new SyncService(config.getMqttBrokerUrl(), config.getMainAppId());
 
         } catch (Exception e) {
             System.err.println("Failed to initialize services: " + e.getMessage());

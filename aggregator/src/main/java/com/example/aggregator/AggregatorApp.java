@@ -1,5 +1,6 @@
 package com.example.aggregator;
 
+import com.example.aggregator.config.AggregatorAppConfig;
 import com.example.aggregator.model.AggregatorConfig;
 import com.example.aggregator.mqtt.MqttBroker;
 import com.example.aggregator.mqtt.MqttMessageHandler;
@@ -24,39 +25,16 @@ public class AggregatorApp {
         System.out.println("╚════════════════════════════════════════╝\n");
 
         try {
-            // Read configuration from environment
-            String aggregatorId = System.getenv("AGGREGATOR_ID");
-            if (aggregatorId == null) {
-                aggregatorId = "agg-1";  // Default for testing
-                System.out.println("[AggregatorApp] Using default aggregator ID: " + aggregatorId);
-            }
-
-            int sftpPort = Integer.parseInt(System.getenv().getOrDefault("SFTP_PORT", "2222"));
-
-            String workingDir = System.getenv("WORKING_DIR");
-            if (workingDir == null) {
-                workingDir = "/data/working";
-            }
-
-            String brokerUrl = System.getenv("MQTT_BROKER_URL");
-            if (brokerUrl == null) {
-                brokerUrl = "tcp://filemanager-mqtt:1883";  // Docker container hostname
-            }
-
-            // Create configuration
-            AggregatorConfig config = new AggregatorConfig(
-                    aggregatorId,
-                    sftpPort,
-                    workingDir,
-                    brokerUrl
-            );
+            AggregatorAppConfig appConfig = AggregatorAppConfig.fromEnv();
+            AggregatorConfig config = appConfig.toModel();
 
             System.out.println("[AggregatorApp] Configuration:");
             System.out.println("  " + config);
 
             // Initialize SFTP Server
-            sftpServer = new SftpServer(config.getAggregatorId(), config.getSftpPort(), 
-                                       config.getWorkingDirectory());
+            sftpServer = new SftpServer(config.getAggregatorId(), config.getSftpPort(),
+                    config.getWorkingDirectory(), appConfig.requireSftpUser(),
+                    appConfig.requireSftpPassword());
             sftpServer.start();
 
             // Initialize MQTT Broker
@@ -64,7 +42,7 @@ public class AggregatorApp {
             mqttBroker.connect();
 
             // Initialize Message Handler (monitors SFTP directory for instructions)
-            messageHandler = new MqttMessageHandler(mqttBroker, config);
+            messageHandler = new MqttMessageHandler(mqttBroker, appConfig);
             messageHandler.startMonitoring();
 
             // Start heartbeat reporting so Load Balancer knows this aggregator is alive
@@ -74,8 +52,8 @@ public class AggregatorApp {
             System.out.println("\n╔════════════════════════════════════════╗");
             System.out.println("║      AGGREGATOR CONTAINER READY        ║");
             System.out.println("╚════════════════════════════════════════╝\n");
-            System.out.println("[AggregatorApp] SFTP: " + aggregatorId + " on port " + sftpPort);
-            System.out.println("[AggregatorApp] Working directory: " + workingDir);
+            System.out.println("[AggregatorApp] SFTP: " + config.getAggregatorId() + " on port " + config.getSftpPort());
+            System.out.println("[AggregatorApp] Working directory: " + config.getWorkingDirectory());
             System.out.println("[AggregatorApp] Monitoring for incoming files...\n");
 
             // Graceful shutdown hook

@@ -1,5 +1,6 @@
 package com.example.loadbalancer;
 
+import com.example.loadbalancer.config.LoadBalancerConfig;
 import com.example.loadbalancer.mqtt.MqttBroker;
 import com.example.loadbalancer.mqtt.MqttMessageHandler;
 import com.example.loadbalancer.service.HealthMonitor;
@@ -22,17 +23,12 @@ public class LoadBalancerApp {
         System.out.println("╚════════════════════════════════════════╝\n");
 
         try {
-            // Get MQTT broker URL from environment or use default
-            String brokerUrl = System.getenv("MQTT_BROKER_URL");
-            if (brokerUrl == null) {
-                brokerUrl = "tcp://filemanager-mqtt:1883";  // Docker container hostname
-                System.out.println("[LoadBalancerApp] Using default MQTT broker: " + brokerUrl);
-            } else {
-                System.out.println("[LoadBalancerApp] Using MQTT broker: " + brokerUrl);
-            }
+            LoadBalancerConfig config = LoadBalancerConfig.fromEnv();
+            String brokerUrl = config.getMqttBrokerUrl();
+            System.out.println("[LoadBalancerApp] Using MQTT broker: " + brokerUrl);
 
             // Initialize MQTT Broker
-            mqttBroker = new MqttBroker(brokerUrl, "load-balancer");
+            mqttBroker = new MqttBroker(brokerUrl, config.getServiceId());
             mqttBroker.connect();
 
             // Initialize Routing Service

@@ -1,5 +1,6 @@
 package com.example.mainapp.db;
 
+import com.example.mainapp.config.MainAppConfig;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
@@ -23,22 +24,21 @@ public class LocalSQLiteDataSource {
     // Path is relative to the working directory of the running process.
     // In Docker Compose the working dir is /app/data (mounted volume) so
     // the DB persists across restarts.  Locally it falls back to the project root.
-    private static final String DB_PATH =
-            System.getenv("SQLITE_DB_PATH") != null
-                    ? System.getenv("SQLITE_DB_PATH")
-                    : "fileapp.db";
-
-    private static final String URL = "jdbc:sqlite:" + DB_PATH;
+    private final String dbPath;
+    private final String url;
 
     /** Tracks whether schema init has run in this JVM process. */
     private static volatile boolean schemaInitialised = false;
 
     public LocalSQLiteDataSource() {
+        MainAppConfig config = MainAppConfig.getInstance();
+        this.dbPath = config.getSqliteDbPath();
+        this.url = "jdbc:sqlite:" + dbPath;
         ensureSchema();
     }
 
     public Connection getConnection() throws SQLException {
-        return DriverManager.getConnection(URL);
+        return DriverManager.getConnection(url);
     }
 
     // =========================================================
@@ -49,12 +49,12 @@ public class LocalSQLiteDataSource {
      * Creates all required tables if they do not already exist.
      * Called once per JVM startup (double-checked locking on the flag).
      */
-    private static synchronized void ensureSchema() {
+    private synchronized void ensureSchema() {
         if (schemaInitialised) {
             return;
         }
 
-        try (Connection conn = DriverManager.getConnection(URL);
+        try (Connection conn = DriverManager.getConnection(url);
              Statement stmt = conn.createStatement()) {
 
             // Enable WAL mode for better concurrent read performance
@@ -67,7 +67,7 @@ public class LocalSQLiteDataSource {
             createPendingChangesTable(stmt);
 
             schemaInitialised = true;
-            System.out.println("[LocalSQLiteDataSource] Schema initialised at: " + DB_PATH);
+            System.out.println("[LocalSQLiteDataSource] Schema initialised at: " + dbPath);
 
         } catch (SQLException e) {
             // Log but do not crash — the app can still run against MySQL remotely

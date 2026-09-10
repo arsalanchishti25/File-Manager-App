@@ -1,6 +1,7 @@
 // src/main/java/com/example/mainapp/mqtt/DownloadManager.java
 package com.example.mainapp.mqtt;
 
+import com.example.mainapp.config.MainAppConfig;
 import com.example.mainapp.model.File;
 import com.example.mainapp.model.FileChunkMetadata;
 import com.example.mainapp.repository.FileRepository;
@@ -126,7 +127,9 @@ public class DownloadManager {
             // Step 5: Send instructions to Aggregator via SFTP
             SftpClient sftpClient = new SftpClient(mainAppId);
             try {
-                sftpClient.connect(aggregatorIp, aggregatorPort, "sftpuser", "sftppass");
+                MainAppConfig config = MainAppConfig.getInstance();
+                sftpClient.connect(aggregatorIp, aggregatorPort,
+                        config.requireSftpUser(), config.requireSftpPassword());
                 sftpClient.uploadFile(instructionsPath, "retrieval_instructions.json");
                 System.out.println("[DownloadManager] Sent retrieval instructions to Aggregator");
             } finally {
@@ -162,7 +165,9 @@ public class DownloadManager {
 
             SftpClient downloadClient = new SftpClient(mainAppId);
             try {
-                downloadClient.connect(aggregatorIp, aggregatorPort, "sftpuser", "sftppass");
+                MainAppConfig config = MainAppConfig.getInstance();
+                downloadClient.connect(aggregatorIp, aggregatorPort,
+                        config.requireSftpUser(), config.requireSftpPassword());
                 
                 // FIXED: Use standard reassembled filename from Aggregator
                 String remoteFilename = "fileId_" + fileId + "_reassembled.bin";
