@@ -1,6 +1,7 @@
 // src/main/java/com/example/hostmanager/HostManagerMain.java
 package com.example.hostmanager;
 
+import com.example.hostmanager.config.HostManagerConfig;
 import com.example.hostmanager.service.ContainerOrchestrator;
 import com.example.hostmanager.service.HostManager;
 
@@ -47,15 +48,9 @@ public class HostManagerMain {
      * Load configuration from environment variables or command-line arguments.
      */
     private static void loadConfiguration(String[] args) {
-        hostManagerId = System.getenv("HOST_MANAGER_ID");
-        if (hostManagerId == null || hostManagerId.isEmpty()) {
-            hostManagerId = args.length > 0 ? args[0] : "hm-1";
-        }
-
-        mqttBrokerUrl = System.getenv("MQTT_BROKER_URL");
-        if (mqttBrokerUrl == null || mqttBrokerUrl.isEmpty()) {
-            mqttBrokerUrl = args.length > 1 ? args[1] : "tcp://filemanager-mqtt:1883";
-        }
+        HostManagerConfig config = HostManagerConfig.fromEnv();
+        hostManagerId = config.getHostManagerId();
+        mqttBrokerUrl = config.getMqttBrokerUrl();
 
         System.out.println("Configuration loaded:");
         System.out.println("  Host Manager ID:  " + hostManagerId);

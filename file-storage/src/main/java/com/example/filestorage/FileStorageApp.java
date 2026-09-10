@@ -1,5 +1,6 @@
 package com.example.filestorage;
 
+import com.example.filestorage.config.FileStorageAppConfig;
 import com.example.filestorage.model.ContainerConfig;
 import com.example.filestorage.mqtt.MqttBroker;
 import com.example.filestorage.mqtt.MqttMessageHandler;
@@ -26,46 +27,15 @@ public class FileStorageApp {
         System.out.println("╚════════════════════════════════════════╝\n");
 
         try {
-            // Read configuration from environment
-            String containerId = System.getenv("FS_CONTAINER_ID");
-            if (containerId == null) {
-                containerId = "fs-1";  // Default for testing
-                System.out.println("[FileStorageApp] Using default container ID: " + containerId);
-            }
-
-            // Extract volume group from container ID
-            // FS-1 → VG 1, FS-2 → VG 2, FS-3 → VG 3, FS-4 → VG 4, FS-5 → VG 1, etc.
-            int fsNumber = Integer.parseInt(containerId.replace("fs-", "").replace("FS-", ""));
-            int volumeGroup = ((fsNumber - 1) % 4) + 1;
-
-            int sftpPort = Integer.parseInt(System.getenv().getOrDefault("SFTP_PORT", "2222"));
-            
-            // TODO: Update storage path based on volume group
-            String storageBasePath = System.getenv("STORAGE_BASE_PATH");
-            if (storageBasePath == null) {
-                storageBasePath = "/data/volume-group-" + volumeGroup + "/chunks";
-            }
-
-            String brokerUrl = System.getenv("MQTT_BROKER_URL");
-            if (brokerUrl == null) {
-                brokerUrl = "tcp://filemanager-mqtt:1883";  // Docker container hostname
-            }
-
-            // Create configuration
-            ContainerConfig config = new ContainerConfig(
-                    containerId.toLowerCase(),
-                    volumeGroup,
-                    sftpPort,
-                    storageBasePath,
-                    brokerUrl
-            );
+            FileStorageAppConfig appConfig = FileStorageAppConfig.fromEnv();
+            ContainerConfig config = appConfig.toModel();
 
             System.out.println("[FileStorageApp] Configuration:");
             System.out.println("  " + config);
 
             // Initialize SFTP Server
-            sftpServer = new SftpServer(config.getContainerId(), config.getSftpPort(), 
-                                       config.getStorageBasePath());
+            sftpServer = new SftpServer(config.getContainerId(), config.getSftpPort(),
+                    config.getStorageBasePath(), appConfig.requireSftpUser(), appConfig.requireSftpPassword());
             sftpServer.start();
 
             // Initialize Storage Service
@@ -86,8 +56,8 @@ public class FileStorageApp {
             System.out.println("\n╔════════════════════════════════════════╗");
             System.out.println("║   FILE STORAGE CONTAINER READY         ║");
             System.out.println("╚════════════════════════════════════════╝\n");
-            System.out.println("[FileStorageApp] SFTP: " + containerId + " on port " + sftpPort);
-            System.out.println("[FileStorageApp] Storage: " + storageBasePath);
+            System.out.println("[FileStorageApp] SFTP: " + config.getContainerId() + " on port " + config.getSftpPort());
+            System.out.println("[FileStorageApp] Storage: " + config.getStorageBasePath());
             System.out.println("[FileStorageApp] Listening for MQTT delete commands...\n");
 
             // Graceful shutdown hook

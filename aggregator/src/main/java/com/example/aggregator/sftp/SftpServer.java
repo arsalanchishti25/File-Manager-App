@@ -18,12 +18,17 @@ public class SftpServer {
     private final int port;
     private final String workingDirectory;
     private final String aggregatorId;
+    private final String sftpUser;
+    private final String sftpPassword;
 
-    public SftpServer(String aggregatorId, int port, String workingDirectory) {
+    public SftpServer(String aggregatorId, int port, String workingDirectory,
+                      String sftpUser, String sftpPassword) {
         this.aggregatorId = aggregatorId;
         this.port = port;
         this.workingDirectory = workingDirectory;
         this.sshServer = SshServer.setUpDefaultServer();
+        this.sftpUser = sftpUser;
+        this.sftpPassword = sftpPassword;
     }
 
     /**
@@ -43,7 +48,7 @@ public class SftpServer {
         sshServer.setKeyPairProvider(keyProvider);
 
         // Set password authenticator
-        sshServer.setPasswordAuthenticator(new SftpUserInfo());
+        sshServer.setPasswordAuthenticator(new SftpUserInfo(sftpUser, sftpPassword));
 
         // Set SFTP subsystem factory
         sshServer.setSubsystemFactories(Collections.singletonList(new SftpSubsystemFactory()));

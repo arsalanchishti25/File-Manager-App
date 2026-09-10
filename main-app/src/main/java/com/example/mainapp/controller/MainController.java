@@ -1,5 +1,6 @@
 package com.example.mainapp.controller;
 
+import com.example.mainapp.config.MainAppConfig;
 import com.example.mainapp.db.RemoteMySQLDataSource;
 import com.example.mainapp.logging.MysqlEventLogger;
 import com.example.mainapp.model.File;
@@ -82,17 +83,15 @@ public class MainController implements Initializable {
     public void initialize(URL url, ResourceBundle resourceBundle) {
         // CHANGE 2: Initialize services with MQTT parameters
         try {
-            String brokerUrl = System.getenv("MQTT_BROKER_URL");
-            if (brokerUrl == null) brokerUrl = "tcp://filemanager-mqtt:1883";
-            
-            String mainAppId = "main-app-" + System.currentTimeMillis();
+            MainAppConfig config = MainAppConfig.getInstance();
 
             // Initialize connectivity and sync repository
             this.connectivityService = new ConnectivityService();
             this.syncRepository = new SyncRepository();
 
             // Initialize file service with MQTT
-            this.fileService = new SyncAwareFileService(brokerUrl, mainAppId);
+            this.fileService = new SyncAwareFileService(
+                    config.getMqttBrokerUrl(), config.getMainAppId());
 
             // Initialize user service
             this.userService = new SyncAwareUserService(

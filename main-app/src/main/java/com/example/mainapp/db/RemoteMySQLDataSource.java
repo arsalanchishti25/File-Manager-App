@@ -17,6 +17,7 @@
 // }
 package com.example.mainapp.db;
 
+import com.example.mainapp.config.MainAppConfig;
 import java.sql.*;
 
 public class RemoteMySQLDataSource {
@@ -40,25 +41,12 @@ public class RemoteMySQLDataSource {
     
     // No-arg constructor reads from environment variables
     public RemoteMySQLDataSource() {
-        this.host = System.getenv("MYSQL_HOST") != null 
-            ? System.getenv("MYSQL_HOST") 
-            : "filemanager-mysql";
-        
-        this.port = System.getenv("MYSQL_PORT") != null 
-            ? System.getenv("MYSQL_PORT") 
-            : "3306";
-        
-        this.database = System.getenv("MYSQL_DATABASE") != null 
-            ? System.getenv("MYSQL_DATABASE") 
-            : "filemanager";
-        
-        this.user = System.getenv("MYSQL_USER") != null 
-            ? System.getenv("MYSQL_USER") 
-            : "fileapp";
-        
-        this.password = System.getenv("MYSQL_PASSWORD") != null 
-            ? System.getenv("MYSQL_PASSWORD") 
-            : "fileapp123";
+        MainAppConfig config = MainAppConfig.getInstance();
+        this.host = config.getMysqlHost();
+        this.port = String.valueOf(config.getMysqlPort());
+        this.database = config.getMysqlDatabase();
+        this.user = config.getMysqlUser();
+        this.password = config.requireMysqlPassword();
         
         this.url = String.format(
             "jdbc:mysql://%s:%s/%s?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true",

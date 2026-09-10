@@ -9,12 +9,16 @@ import org.apache.sshd.server.session.ServerSession;
  * TODO: Implement proper authentication
  */
 public class SftpUserInfo implements PasswordAuthenticator {
+    private final String configuredUsername;
+    private final String configuredPassword;
+
+    public SftpUserInfo(String configuredUsername, String configuredPassword) {
+        this.configuredUsername = configuredUsername;
+        this.configuredPassword = configuredPassword;
+    }
 
     @Override
     public boolean authenticate(String username, String password, ServerSession session) {
-        // TODO: Implement actual authentication against Main App database
-        // For now, accept any credentials
-        System.out.println("[SftpUserInfo] Authentication attempt: " + username);
-        return true;
+        return configuredUsername.equals(username) && configuredPassword.equals(password);
     }
 }
