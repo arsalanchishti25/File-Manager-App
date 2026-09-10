@@ -40,18 +40,19 @@ public class SessionService {
      * Retrieve user from session key (for restoring sessions on app restart).
      */
     public Optional<User> getUserBySession(String sessionKey) {
-        String sql = "SELECT u.id, u.username, u.password_hash, u.role, u.created_at " +
-                     "FROM user_sessions s JOIN users u ON s.user_id = u.id WHERE s.session_key = ?";
+        String sql = "SELECT u.user_id, u.username, u.passwordhash, u.role, u.last_modified_server " +
+                     "FROM user_sessions s JOIN cached_users u ON s.user_id = u.user_id " +
+                     "WHERE s.session_key = ?";
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, sessionKey);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
-                    long id = rs.getLong("id");
+                    long id = rs.getLong("user_id");
                     String username = rs.getString("username");
-                    String passwordHash = rs.getString("password_hash");
+                    String passwordHash = rs.getString("passwordhash");
                     User.Role role = User.Role.valueOf(rs.getString("role"));
-                    Timestamp ts = rs.getTimestamp("created_at");
+                    Timestamp ts = rs.getTimestamp("last_modified_server");
                     LocalDateTime createdAt = ts != null ? ts.toLocalDateTime() : LocalDateTime.now();
                     
                     return Optional.of(new User(id, username, passwordHash, role, createdAt));
