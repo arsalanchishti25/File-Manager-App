@@ -14,7 +14,7 @@ There is **no parent POM** and **no multi-module aggregator**. Five independent 
 | [file-storage](../file-storage/pom.xml) | `com.example:file-storage` | `com.example.filestorage.FileStorageApp` | SFTP chunk store, MQTT delete, heartbeats |
 | [host-manager](../host-manager/pom.xml) | `com.example:host-manager` | `com.example.hostmanager.HostManagerMain` | ProcessBuilder Docker helpers exist; **MQTT scale loop is commented out**; **not in Compose** |
 
-Supporting (not Maven): [`config/mysql-init.sql`](../config/mysql-init.sql), [`config/mysql-init`](../config/mysql-init) (legacy duplicate, unused), [`config/mosquitto.conf`](../config/mosquitto.conf), [`docker-compose.yml`](../docker-compose.yml).
+Supporting (not Maven): [`config/mysql-init.sql`](../config/mysql-init.sql), [`config/mosquitto.conf`](../config/mosquitto.conf), [`docker-compose.yml`](../docker-compose.yml).
 
 **main-app packages:** `App`; controllers (Login, Register, Main, Users, EventLogs, UpdatePassword); `db` (LocalSQLite, RemoteMySQL, DatabaseInitializer); repositories; services (Auth, File, Sync*, Connectivity, Session*); MQTT managers; SFTP client; logging; models; FXML under `src/main/resources`.
 
@@ -66,7 +66,6 @@ Compose starts: mysql, mqtt-broker, main-app (`pedrombmachado/ntu_lubuntu:soft40
 - Compose MySQL: `MYSQL_ROOT_PASSWORD: root123`, `MYSQL_USER: fileapp`, `MYSQL_PASSWORD: fileapp123`, DB `filemanager`.
 - `RemoteMySQLDataSource`: env with fallbacks `filemanager-mysql` / `3306` / `filemanager` / `fileapp` / **`fileapp123`**. Commented legacy: `root` / `MySQL$Password1` / `localhost:3306/fileapp`.
 - `config/mysql-init.sql`: seed user `admin` / documented password **`admin123`** (BCrypt hash in file).
-- `config/mysql-init`: `CREATE USER ... IDENTIFIED BY 'fileapp123'`; different admin hash; documents password `admin`. **Not mounted by Compose.**
 - `DatabaseInitializer.initializeRemoteDatabase`: seeds `test`/`admin` with hashes of plaintext `"test"` / `"admin"` (method **not called**; commented in `App`).
 - SFTP client: aggregator `UploadHandler` / `DownloadHandler` use **`"user"` / `"password"`**.
 - SFTP servers: aggregator and file-storage `SftpUserInfo` **accept any username/password**.
@@ -115,18 +114,17 @@ No `filemanager/` prefix. Aggregator ops are **not** MQTT-driven; they poll `ins
 
 ## 4. Subsystem status
 
-### MySQL initialisation — **partial, two schemas**
+### MySQL initialisation — **partial**
 
 - Compose mounts **only** `config/mysql-init.sql` → `/docker-entrypoint-initdb.d/init.sql` (runs **once** on empty volume).
 - Script: `CREATE DATABASE IF NOT EXISTS`, tables `users`, `files`, `file_chunks`, `file_permissions`, `event_logs` with FKs/indexes; idempotent `CREATE TABLE IF NOT EXISTS`; admin seed `ON DUPLICATE KEY`. **No** `containers` / sync tables.
-- `config/mysql-init` is **not mounted**, has **invalid trailing commas**, column names that **do not match** Java (`size_in_bytes` vs `size_bytes`, `permission_id` vs `id`).
-- Java `DatabaseInitializer.initializeRemoteDatabase()` would create a **divergent** schema plus `containers`; **disabled** in `App.start()`.
+- Java `DatabaseInitializer.initializeRemoteDatabase()` only verifies connectivity; schema ownership remains with `config/mysql-init.sql`.
 - MySQL healthcheck in Compose is **commented out**. App passwords are hashed (BCrypt); seed is a known demo password.
 
-### SQLite initialisation — **works, duplicated, incomplete vs brief**
+### SQLite initialisation — **idempotent local foundation**
 
-- `LocalSQLiteDataSource`: idempotent `IF NOT EXISTS` for `cached_files`, `cached_users`, `cached_permissions`, `pending_changes`; WAL; env path; **does not create parent directories**.
-- `DatabaseInitializer.initializeLocalDatabase()` (called from `App`) creates overlapping tables **plus** `user_sessions`, with **different** `cached_users` / `cached_files` shapes (FK to `users(id)` that **does not exist** in SQLite).
+- `LocalSQLiteDataSource`: authoritative idempotent `IF NOT EXISTS` schema for `user_sessions`, `cached_files`, `cached_users`, `cached_permissions`, and `pending_changes`; WAL; configured path; creates parent directories.
+- `DatabaseInitializer.initializeLocalDatabase()` delegates to `LocalSQLiteDataSource`; sessions reference `cached_users(user_id)`.
 - Missing vs brief: dedicated session/cache tables as specified, local events, sync metadata status beyond simple `pending_changes`. **No tests.**
 
 ### MQTT communication — **partial, non-standard topics**

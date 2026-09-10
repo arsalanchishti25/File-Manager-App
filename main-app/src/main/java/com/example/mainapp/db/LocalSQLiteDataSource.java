@@ -5,6 +5,9 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 /**
  * SQLite data source for offline/local mode.
@@ -27,13 +30,11 @@ public class LocalSQLiteDataSource {
     private final String dbPath;
     private final String url;
 
-    /** Tracks whether schema init has run in this JVM process. */
-    private static volatile boolean schemaInitialised = false;
-
     public LocalSQLiteDataSource() {
         MainAppConfig config = MainAppConfig.getInstance();
         this.dbPath = config.getSqliteDbPath();
         this.url = "jdbc:sqlite:" + dbPath;
+        createParentDirectory();
         ensureSchema();
     }
 
@@ -47,13 +48,9 @@ public class LocalSQLiteDataSource {
 
     /**
      * Creates all required tables if they do not already exist.
-     * Called once per JVM startup (double-checked locking on the flag).
+     * Safe to run for every data-source instance.
      */
-    private synchronized void ensureSchema() {
-        if (schemaInitialised) {
-            return;
-        }
-
+    private void ensureSchema() {
         try (Connection conn = DriverManager.getConnection(url);
              Statement stmt = conn.createStatement()) {
 
@@ -61,12 +58,12 @@ public class LocalSQLiteDataSource {
             stmt.execute("PRAGMA journal_mode=WAL");
             stmt.execute("PRAGMA foreign_keys=ON");
 
-            createCachedFilesTable(stmt);
             createCachedUsersTable(stmt);
+            createUserSessionsTable(stmt);
+            createCachedFilesTable(stmt);
             createCachedPermissionsTable(stmt);
             createPendingChangesTable(stmt);
 
-            schemaInitialised = true;
             System.out.println("[LocalSQLiteDataSource] Schema initialised at: " + dbPath);
 
         } catch (SQLException e) {
@@ -74,6 +71,33 @@ public class LocalSQLiteDataSource {
             System.err.println("[LocalSQLiteDataSource] Schema initialisation failed: " + e.getMessage());
             e.printStackTrace();
         }
+    }
+
+    private void createParentDirectory() {
+        Path parent = Path.of(dbPath).toAbsolutePath().getParent();
+        try {
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
+        } catch (IOException e) {
+            throw new IllegalStateException(
+                    "Unable to create SQLite database directory: " + parent, e);
+        }
+    }
+
+    private static void createUserSessionsTable(Statement stmt) throws SQLException {
+        stmt.execute("""
+            CREATE TABLE IF NOT EXISTS user_sessions (
+                session_key   TEXT PRIMARY KEY,
+                user_id       INTEGER NOT NULL,
+                session_value TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES cached_users (user_id) ON DELETE CASCADE
+            )
+            """);
+        stmt.execute("""
+            CREATE INDEX IF NOT EXISTS idx_user_sessions_user
+            ON user_sessions (user_id)
+            """);
     }
 
     /**
@@ -84,7 +108,7 @@ public class LocalSQLiteDataSource {
         stmt.execute("""
             CREATE TABLE IF NOT EXISTS cached_files (
                 id                      INTEGER PRIMARY KEY AUTOINCREMENT,
-                file_id                 INTEGER NOT NULL DEFAULT 0,
+                file_id                 INTEGER UNIQUE,
                 owner_id                INTEGER NOT NULL,
                 filename                TEXT    NOT NULL,
                 last_modified_server    TEXT,
@@ -105,8 +129,7 @@ public class LocalSQLiteDataSource {
     private static void createCachedUsersTable(Statement stmt) throws SQLException {
         stmt.execute("""
             CREATE TABLE IF NOT EXISTS cached_users (
-                id                      INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id                 INTEGER NOT NULL UNIQUE,
+                user_id                 INTEGER PRIMARY KEY,
                 username                TEXT    NOT NULL UNIQUE,
                 passwordhash            TEXT    NOT NULL,
                 role                    TEXT    NOT NULL DEFAULT 'STANDARD',

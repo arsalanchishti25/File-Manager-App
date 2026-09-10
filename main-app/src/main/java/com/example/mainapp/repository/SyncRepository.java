@@ -76,7 +76,7 @@ public class SyncRepository {
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
 
-            ps.setLong(1, 0L);
+            ps.setNull(1, Types.BIGINT);
             ps.setLong(2, ownerId);
             ps.setString(3, filename);
             if (lastModifiedServer != null) {
