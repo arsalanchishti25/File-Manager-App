@@ -3,6 +3,7 @@ package com.example.loadbalancer;
 import com.example.loadbalancer.config.LoadBalancerConfig;
 import com.example.loadbalancer.mqtt.MqttBroker;
 import com.example.loadbalancer.mqtt.MqttMessageHandler;
+import com.example.loadbalancer.mqtt.TopicConstants;
 import com.example.loadbalancer.service.HealthMonitor;
 import com.example.loadbalancer.service.RoutingService;
 import org.eclipse.paho.client.mqttv3.MqttException;
@@ -48,10 +49,13 @@ public class LoadBalancerApp {
             messageHandler = new MqttMessageHandler(mqttBroker, routingService, healthMonitor);
             
             // Also subscribe to delete responses
-            mqttBroker.subscribe("fs/delete/response", (topic, message) -> {
+            mqttBroker.subscribe(TopicConstants.STORAGE_DELETE_RESPONSE, (topic, message) -> {
                 String payload = new String(message.getPayload());
                 System.out.println("[LoadBalancerApp] Received delete response: " + payload);
                 messageHandler.handleDeleteResponse(payload);
+            });
+            mqttBroker.subscribe(TopicConstants.LEGACY_STORAGE_DELETE_RESPONSE, (topic, message) -> {
+                messageHandler.handleDeleteResponse(new String(message.getPayload()));
             });
 
             // Start listening for incoming requests

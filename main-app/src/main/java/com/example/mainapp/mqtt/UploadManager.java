@@ -56,18 +56,18 @@ public class UploadManager {
         try {
             // Step 2: Send MQTT request to Load Balancer
             // Use operations/request topic and include mainAppId
-            JsonObject uploadRequest = new JsonObject();
-            uploadRequest.addProperty("operation", "UPLOAD");
-            uploadRequest.addProperty("fileId", file.getId());
+            OperationRequest operationRequest = new OperationRequest("UPLOAD", mainAppId, file.getId(), ownerId);
+            JsonObject uploadRequest = operationRequest.toJson();
             uploadRequest.addProperty("userId", ownerId);
             uploadRequest.addProperty("fileSize", fileSize);
             uploadRequest.addProperty("filename", filename);
-            uploadRequest.addProperty("mainAppId", mainAppId);  // FIXED: Add mainAppId
+            uploadRequest.addProperty("operationId", operationRequest.getOperationId());
+            uploadRequest.addProperty("correlationId", operationRequest.getCorrelationId());
 
             // FIXED: Wait for response on operations/response/{mainAppId}
-            String responseTopic = "operations/response/" + mainAppId;
+            String responseTopic = TopicConstants.operationsResponse(mainAppId);
             String lbResponse = mqttClient.publishAndWaitForResponse(
-                "operations/request",  // FIXED: Correct topic
+                TopicConstants.OPERATIONS_REQUEST,
                 responseTopic,
                 uploadRequest.toString(),
                 10000  // 10s timeout
@@ -103,6 +103,9 @@ public class UploadManager {
             instructions.addProperty("filename", filename);
             instructions.addProperty("fileSize", fileSize);
             instructions.addProperty("mainAppId", mainAppId);  // Aggregator reads this to route the completion notification
+            instructions.addProperty("operationId", operationRequest.getOperationId());
+            instructions.addProperty("correlationId", operationRequest.getCorrelationId());
+            instructions.addProperty("sourceServiceId", mainAppId);
             instructions.add("fsContainers", fsContainersArray);
 
             // FIXED: Save as instructions.json (not manifest.json)
@@ -112,7 +115,7 @@ public class UploadManager {
 
             System.out.println("[UploadManager] Created instructions file");
 
-            // Step 5: Send file + instructions to Aggregator via SFTP
+            // Step 5: Send the file via SFTP, then deliver the instruction over MQTT
             // FIXED: Use standard naming that Aggregator expects
             SftpClient sftpClient = new SftpClient(mainAppId);
             try {
@@ -132,10 +135,11 @@ public class UploadManager {
             } finally {
                 sftpClient.disconnect();
             }
+            mqttClient.publish(TopicConstants.aggregator(aggregatorId, "upload"), instructions.toString());
 
             // Step 6: Wait for Aggregator completion MQTT message
             // FIXED: Listen on aggregator/upload/complete/{mainAppId} (not {fileId})
-            String aggResponseTopic = "aggregator/upload/complete/" + mainAppId;
+            String aggResponseTopic = TopicConstants.uploadComplete(mainAppId);
             
             // FIXED: Don't send "started" notification - Aggregator monitors SFTP directory
             // Just subscribe and wait for completion message

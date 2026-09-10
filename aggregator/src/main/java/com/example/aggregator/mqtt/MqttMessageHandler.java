@@ -4,6 +4,7 @@ import com.example.aggregator.config.AggregatorAppConfig;
 import com.example.aggregator.model.AggregatorConfig;
 import com.example.aggregator.model.UploadInstructions;
 import com.example.aggregator.model.DownloadInstructions;
+import com.example.aggregator.model.ErrorResponse;
 import com.example.aggregator.service.UploadHandler;
 import com.example.aggregator.service.DownloadHandler;
 import com.google.gson.JsonArray;
@@ -15,6 +16,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 
 /**
  * Monitors SFTP working directory for incoming files and instructions.
@@ -27,6 +31,7 @@ public class MqttMessageHandler {
     private final UploadHandler uploadHandler;
     private final DownloadHandler downloadHandler;
     private volatile boolean running = false;
+    private final ExecutorService operationExecutor = Executors.newFixedThreadPool(4);
 
     public MqttMessageHandler(MqttBroker mqttBroker, AggregatorAppConfig appConfig) {
         this.mqttBroker = mqttBroker;
@@ -40,6 +45,14 @@ public class MqttMessageHandler {
      */
     public void startMonitoring() {
         running = true;
+        try {
+            mqttBroker.subscribe(TopicConstants.upload(config.getAggregatorId()),
+                    (topic, message) -> dispatchUpload(new String(message.getPayload())));
+            mqttBroker.subscribe(TopicConstants.download(config.getAggregatorId()),
+                    (topic, message) -> dispatchDownload(new String(message.getPayload())));
+        } catch (MqttException e) {
+            throw new IllegalStateException("Unable to subscribe to direct aggregator topics", e);
+        }
         
         Thread monitorThread = new Thread(() -> {
             System.out.println("[MqttMessageHandler] Started monitoring: " + config.getWorkingDirectory());
@@ -83,6 +96,90 @@ public class MqttMessageHandler {
      */
     public void stopMonitoring() {
         running = false;
+        operationExecutor.shutdown();
+    }
+
+    private void dispatchUpload(String payload) {
+        try {
+            UploadInstructions instructions =
+                    mqttBroker.getGson().fromJson(payload, UploadInstructions.class);
+            validateUpload(instructions);
+            operationExecutor.submit(() -> processUploadInstruction(instructions));
+        } catch (RejectedExecutionException e) {
+            publishError(null, null, null, "EXECUTOR_REJECTED", "Upload executor is shutting down");
+        } catch (Exception e) {
+            publishError(null, null, null, "INVALID_JSON", "Invalid upload instruction");
+        }
+    }
+
+    private void dispatchDownload(String payload) {
+        try {
+            DownloadInstructions instructions =
+                    mqttBroker.getGson().fromJson(payload, DownloadInstructions.class);
+            validateDownload(instructions);
+            operationExecutor.submit(() -> processDownloadInstruction(instructions));
+        } catch (RejectedExecutionException e) {
+            publishError(null, null, null, "EXECUTOR_REJECTED", "Download executor is shutting down");
+        } catch (Exception e) {
+            publishError(null, null, null, "INVALID_JSON", "Invalid download instruction");
+        }
+    }
+
+    private void validateUpload(UploadInstructions instructions) {
+        if (instructions == null || instructions.getOperationId() == null
+                || instructions.getOperationId().isBlank()
+                || instructions.getMainAppId() == null || instructions.getMainAppId().isBlank()
+                || instructions.getFileId() <= 0 || instructions.getFilename() == null
+                || instructions.getFilename().isBlank() || instructions.getFileSize() < 0
+                || instructions.getFsContainers() == null || instructions.getFsContainers().size() != 4) {
+            throw new IllegalArgumentException("INVALID_TARGET");
+        }
+    }
+
+    private void validateDownload(DownloadInstructions instructions) {
+        if (instructions == null || instructions.getOperationId() == null
+                || instructions.getOperationId().isBlank()
+                || instructions.getMainAppId() == null || instructions.getMainAppId().isBlank()
+                || instructions.getFileId() <= 0 || instructions.getChunks() == null
+                || instructions.getChunks().size() != 4) {
+            throw new IllegalArgumentException("INVALID_TARGET");
+        }
+    }
+
+    private void processUploadInstruction(UploadInstructions instructions) {
+        try {
+            File uploadedFile = new File(config.getWorkingDirectory(),
+                    "fileId_" + instructions.getFileId() + ".bin");
+            if (!uploadedFile.exists()) {
+                throw new IllegalStateException("Uploaded file is not available");
+            }
+            sendUploadCompleteNotification(instructions,
+                    uploadHandler.processUpload(uploadedFile, instructions));
+        } catch (Exception e) {
+            publishError(instructions.getOperationId(), instructions.getCorrelationId(),
+                    instructions.getMainAppId(), "PROCESSING_FAILED", "Upload processing failed");
+        }
+    }
+
+    private void processDownloadInstruction(DownloadInstructions instructions) {
+        try {
+            File result = downloadHandler.processDownload(instructions);
+            sendDownloadCompleteNotification(instructions, result);
+        } catch (Exception e) {
+            publishError(instructions.getOperationId(), instructions.getCorrelationId(),
+                    instructions.getMainAppId(), "PROCESSING_FAILED", "Download processing failed");
+        }
+    }
+
+    private void publishError(String operationId, String correlationId, String mainAppId,
+                              String code, String message) {
+        try {
+            mqttBroker.publish(TopicConstants.EVENTS_ERROR,
+                    mqttBroker.getGson().toJson(new ErrorResponse(operationId, correlationId,
+                            mainAppId, config.getAggregatorId(), code, message)));
+        } catch (MqttException e) {
+            System.err.println("[MqttMessageHandler] Failed to publish structured error: " + e.getMessage());
+        }
     }
 
     /**
@@ -173,11 +270,14 @@ public class MqttMessageHandler {
 
             JsonObject notification = new JsonObject();
             notification.addProperty("fileId", instructions.getFileId());
+            notification.addProperty("operationId", instructions.getOperationId());
+            notification.addProperty("correlationId", instructions.getCorrelationId());
+            notification.addProperty("mainAppId", mainAppId);
             notification.addProperty("status", "complete");
             notification.addProperty("aggregatorId", config.getAggregatorId());
             notification.add("chunks", chunksArray);
 
-            String topic = "aggregator/upload/complete/" + mainAppId;
+            String topic = TopicConstants.uploadComplete(mainAppId);
             mqttBroker.publish(topic, notification.toString());
 
             System.out.println("[MqttMessageHandler] Sent upload complete notification to topic: " + topic +
@@ -204,11 +304,14 @@ public class MqttMessageHandler {
 
             JsonObject notification = new JsonObject();
             notification.addProperty("fileId", instructions.getFileId());
+            notification.addProperty("operationId", instructions.getOperationId());
+            notification.addProperty("correlationId", instructions.getCorrelationId());
+            notification.addProperty("mainAppId", mainAppId);
             notification.addProperty("status", "ready");
             notification.addProperty("filename", reassembledFile.getName());
             notification.addProperty("aggregatorId", config.getAggregatorId());
 
-            String topic = "aggregator/download/complete/" + mainAppId;
+            String topic = TopicConstants.downloadComplete(mainAppId);
             mqttBroker.publish(topic, notification.toString());
 
             System.out.println("[MqttMessageHandler] Sent download complete notification to topic: " + topic +

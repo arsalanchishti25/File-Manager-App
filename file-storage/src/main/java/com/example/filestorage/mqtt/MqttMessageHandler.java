@@ -1,7 +1,9 @@
 package com.example.filestorage.mqtt;
 
 import com.example.filestorage.service.StorageService;
-import com.google.gson.JsonObject;
+import com.example.filestorage.model.DeleteInstruction;
+import com.example.filestorage.model.DeleteResponse;
+import com.example.filestorage.model.ErrorResponse;
 import org.eclipse.paho.client.mqttv3.MqttException;
 import java.io.IOException;
 
@@ -24,7 +26,7 @@ public class MqttMessageHandler {
      */
     public void startListening() throws MqttException {
         String containerId = storageService.getConfig().getContainerId();
-        String deleteTopic = "fs/delete/" + containerId;
+        String deleteTopic = TopicConstants.delete(containerId);
 
         mqttBroker.subscribe(deleteTopic, (topic, message) -> {
             String payload = new String(message.getPayload());
@@ -44,10 +46,15 @@ public class MqttMessageHandler {
      */
     private void handleDeleteCommand(String payload) {
         try {
-            JsonObject command = mqttBroker.getGson().fromJson(payload, JsonObject.class);
-            long fileId = command.get("fileId").getAsLong();
-            int chunkOrder = command.has("chunkOrder") ? command.get("chunkOrder").getAsInt() : 0;
-            String fsId = command.has("fsId") ? command.get("fsId").getAsString() : "unknown";
+            DeleteInstruction command = mqttBroker.getGson().fromJson(payload, DeleteInstruction.class);
+            if (command == null || command.getOperationId() == null || command.getOperationId().isBlank()
+                    || command.getFileId() <= 0 || command.getChunkOrder() <= 0
+                    || command.getFsId() == null || command.getFsId().isBlank()) {
+                throw new IllegalArgumentException("Missing required delete field");
+            }
+            long fileId = command.getFileId();
+            int chunkOrder = command.getChunkOrder();
+            String fsId = command.getFsId();
 
             System.out.println("[MqttMessageHandler] Processing delete: fileId=" + fileId + 
                              ", chunkOrder=" + chunkOrder + ", fsId=" + fsId);
@@ -59,12 +66,12 @@ public class MqttMessageHandler {
                 storageService.getChunkManager().deleteChunk(fileId, chunkOrder);
                 
                 // Send confirmation back to Load Balancer
-                sendDeleteResponse(fileId, chunkOrder, "deleted");
+                sendDeleteResponse(command, "deleted");
                 
             } catch (IOException e) {
                 System.out.println("[MqttMessageHandler] Chunk not found or already deleted: " + e.getMessage());
                 // Still send response (not_found is OK)
-                sendDeleteResponse(fileId, chunkOrder, "not_found");
+                sendDeleteResponse(command, "not_found");
             }
 
         } catch (Exception e) {
@@ -77,15 +84,14 @@ public class MqttMessageHandler {
      * Send delete response to Load Balancer.
      * Topic: fs/delete/response
      */
-    private void sendDeleteResponse(long fileId, int chunkOrder, String status) {
+    private void sendDeleteResponse(DeleteInstruction command, String status) {
         try {
-            JsonObject response = new JsonObject();
-            response.addProperty("fileId", fileId);
-            response.addProperty("chunkOrder", chunkOrder);
-            response.addProperty("fsId", storageService.getConfig().getContainerId());
-            response.addProperty("status", status);  // "deleted" or "not_found"
+            DeleteResponse response = new DeleteResponse(command.getOperationId(),
+                    command.getCorrelationId(), command.getMainAppId(), command.getFileId(),
+                    command.getChunkOrder(), storageService.getConfig().getContainerId(), status);
 
-            mqttBroker.publish("fs/delete/response", response.toString());
+            mqttBroker.publish(TopicConstants.DELETE_RESPONSE,
+                    mqttBroker.getGson().toJson(response));
             
             System.out.println("[MqttMessageHandler] Sent delete response: " + status);
 

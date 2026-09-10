@@ -10,6 +10,9 @@ public class UploadInstructions {
     private String filename;
     private long fileSize;
     private String mainAppId;  // Added: identifies which Main App instance initiated this upload
+    private String operationId;
+    private String correlationId;
+    private String sourceServiceId;
     private List<FSTarget> fsContainers;
 
     public static class FSTarget {
@@ -102,6 +105,12 @@ public class UploadInstructions {
     public void setMainAppId(String mainAppId) {
         this.mainAppId = mainAppId;
     }
+    public String getOperationId() { return operationId; }
+    public void setOperationId(String operationId) { this.operationId = operationId; }
+    public String getCorrelationId() { return correlationId; }
+    public void setCorrelationId(String correlationId) { this.correlationId = correlationId; }
+    public String getSourceServiceId() { return sourceServiceId; }
+    public void setSourceServiceId(String sourceServiceId) { this.sourceServiceId = sourceServiceId; }
 
     public List<FSTarget> getFsContainers() {
         return fsContainers;

@@ -74,17 +74,17 @@ public class DownloadManager {
                 chunkLocations.add(chunkObj);
             }
 
-            JsonObject downloadRequest = new JsonObject();
-            downloadRequest.addProperty("operation", "DOWNLOAD");
-            downloadRequest.addProperty("fileId", fileId);
+            OperationRequest operationRequest = new OperationRequest("DOWNLOAD", mainAppId, fileId, userId);
+            JsonObject downloadRequest = operationRequest.toJson();
             downloadRequest.addProperty("userId", userId);
-            downloadRequest.addProperty("mainAppId", mainAppId);  // FIXED: Add mainAppId
+            downloadRequest.addProperty("operationId", operationRequest.getOperationId());
+            downloadRequest.addProperty("correlationId", operationRequest.getCorrelationId());
             downloadRequest.add("chunks", chunkLocations);
 
             // FIXED: Use operations/request and operations/response/{mainAppId}
-            String responseTopic = "operations/response/" + mainAppId;
+            String responseTopic = TopicConstants.operationsResponse(mainAppId);
             String lbResponse = mqttClient.publishAndWaitForResponse(
-                "operations/request",  // FIXED: Correct topic
+                TopicConstants.OPERATIONS_REQUEST,
                 responseTopic,
                 downloadRequest.toString(),
                 10000  // 10s timeout
@@ -116,6 +116,9 @@ public class DownloadManager {
             instructions.addProperty("fileId", fileId);
             instructions.addProperty("filename", file.getFilename());
             instructions.addProperty("mainAppId", mainAppId);  // Aggregator reads this to route the completion notification
+            instructions.addProperty("operationId", operationRequest.getOperationId());
+            instructions.addProperty("correlationId", operationRequest.getCorrelationId());
+            instructions.addProperty("sourceServiceId", mainAppId);
             instructions.add("chunks", selectedFSContainers);  // FIXED: Use LB's selection
 
             Path instructionsPath = Paths.get("data/temp/downloads/retrieval_instructions_" + fileId + ".json");
@@ -124,21 +127,12 @@ public class DownloadManager {
 
             System.out.println("[DownloadManager] Created retrieval instructions");
 
-            // Step 5: Send instructions to Aggregator via SFTP
-            SftpClient sftpClient = new SftpClient(mainAppId);
-            try {
-                MainAppConfig config = MainAppConfig.getInstance();
-                sftpClient.connect(aggregatorIp, aggregatorPort,
-                        config.requireSftpUser(), config.requireSftpPassword());
-                sftpClient.uploadFile(instructionsPath, "retrieval_instructions.json");
-                System.out.println("[DownloadManager] Sent retrieval instructions to Aggregator");
-            } finally {
-                sftpClient.disconnect();
-            }
+            // Step 5: Send retrieval instructions directly over MQTT.
+            mqttClient.publish(TopicConstants.aggregator(aggregatorId, "download"), instructions.toString());
 
             // Step 6: Wait for Aggregator to complete reassembly
             // FIXED: Listen on aggregator/download/complete/{mainAppId}
-            String aggCompleteTopic = "aggregator/download/complete/" + mainAppId;
+            String aggCompleteTopic = TopicConstants.downloadComplete(mainAppId);
             String aggNotify = mqttClient.waitForMessage(aggCompleteTopic, 120000);  // 2 min timeout
 
             if (aggNotify == null) {
