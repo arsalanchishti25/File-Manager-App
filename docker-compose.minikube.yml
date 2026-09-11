@@ -1,0 +1,20 @@
+services:
+  mysql:
+    build:
+      context: ./config
+      dockerfile: minikube-mysql.Dockerfile
+    image: file-manager/mysql-minikube:latest
+    volumes: !override
+      - mysql-data:/var/lib/mysql
+
+  mqtt-broker:
+    build:
+      context: ./config
+      dockerfile: minikube-mqtt.Dockerfile
+    image: file-manager/mqtt-minikube:latest
+    volumes: !override
+      - mqtt-data:/mosquitto/data
+
+volumes:
+  mysql-data:
+  mqtt-data:

@@ -8,6 +8,7 @@ import java.sql.Statement;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 
 /**
  * SQLite data source for offline/local mode.
@@ -24,15 +25,12 @@ import java.nio.file.Path;
  */
 public class LocalSQLiteDataSource {
 
-    // Path is relative to the working directory of the running process.
-    // In Docker Compose the working dir is /app/data (mounted volume) so
-    // the DB persists across restarts.  Locally it falls back to the project root.
-    private final String dbPath;
+    private final Path dbPath;
     private final String url;
 
     public LocalSQLiteDataSource() {
         MainAppConfig config = MainAppConfig.getInstance();
-        this.dbPath = config.getSqliteDbPath();
+        this.dbPath = Paths.get(config.getSqliteDbPath()).toAbsolutePath().normalize();
         this.url = "jdbc:sqlite:" + dbPath;
         createParentDirectory();
         ensureSchema();
@@ -74,14 +72,17 @@ public class LocalSQLiteDataSource {
     }
 
     private void createParentDirectory() {
-        Path parent = Path.of(dbPath).toAbsolutePath().getParent();
+        Path parent = dbPath.getParent();
         try {
             if (parent != null) {
                 Files.createDirectories(parent);
+                if (!Files.isWritable(parent)) {
+                    throw new IOException("SQLite database directory is not writable");
+                }
             }
         } catch (IOException e) {
             throw new IllegalStateException(
-                    "Unable to create SQLite database directory: " + parent, e);
+                    "Unable to create writable SQLite database directory: " + parent, e);
         }
     }
 

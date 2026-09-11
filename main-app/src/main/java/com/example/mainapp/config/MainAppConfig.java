@@ -2,6 +2,8 @@ package com.example.mainapp.config;
 
 import java.util.Collections;
 import java.util.Map;
+import java.lang.System;
+import java.nio.file.Path;
 
 /**
  * Centralized configuration for main-app.
@@ -48,9 +50,12 @@ public class MainAppConfig {
 
         // SQLite & Paths
         String sqlitePath = source.get("SQLITE_DB_PATH");
+        if (sqlitePath == null || sqlitePath.isBlank()) {
+            sqlitePath = System.getProperty("sqlite.db.path");
+        }
         this.sqliteDbPath = (sqlitePath != null && !sqlitePath.isBlank())
                 ? sqlitePath.trim()
-                : "fileapp.db";
+                : Path.of(System.getProperty("user.home"), "file-manager-data", "fileapp.db").toString();
 
         String dataDir = source.get("APP_DATA_DIR");
         this.appDataDir = (dataDir != null && !dataDir.isBlank())

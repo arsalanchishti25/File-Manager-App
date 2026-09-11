@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -16,7 +17,8 @@ class MainAppConfigTest {
         assertEquals("main-app-1", config.getMainAppId());
         assertEquals("main-app-1", config.getServiceId());
         assertEquals("tcp://filemanager-mqtt:1883", config.getMqttBrokerUrl());
-        assertEquals("fileapp.db", config.getSqliteDbPath());
+        assertEquals(Path.of(System.getProperty("user.home"), "file-manager-data", "fileapp.db").toString(),
+                config.getSqliteDbPath());
         assertEquals("data", config.getAppDataDir());
         assertEquals("filemanager-mysql", config.getMysqlHost());
         assertEquals(3306, config.getMysqlPort());
@@ -29,6 +31,22 @@ class MainAppConfigTest {
         assertThrows(IllegalStateException.class, config::requireMysqlPassword);
         assertThrows(IllegalStateException.class, config::requireSftpUser);
         assertThrows(IllegalStateException.class, config::requireSftpPassword);
+    }
+
+    @Test
+    void testSystemPropertySuppliesSqlitePathWhenEnvironmentIsMissing() {
+        String previous = System.getProperty("sqlite.db.path");
+        try {
+            System.setProperty("sqlite.db.path", "/tmp/property-db.sqlite");
+            MainAppConfig config = new MainAppConfig(Map.of());
+            assertEquals("/tmp/property-db.sqlite", config.getSqliteDbPath());
+        } finally {
+            if (previous == null) {
+                System.clearProperty("sqlite.db.path");
+            } else {
+                System.setProperty("sqlite.db.path", previous);
+            }
+        }
     }
 
     @Test
