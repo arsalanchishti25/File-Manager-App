@@ -23,6 +23,7 @@
             <Label fx:id="usernameLabel"
                 text="(not logged in)"
                 style="-fx-font-size: 14;"/>
+            <Label fx:id="statusLabel" text=""/>
         </VBox>
     </top>
 
@@ -35,7 +36,7 @@
             <HBox spacing="10">
                 <Button text="Add File" onAction="#onAddFileClicked"/>
                 <Button text="Rename Selected" onAction="#onRenameFileClicked"/>
-                <Button text="View/Edit Selected(reassemble rn)" onAction="#onEditContentClicked"/>
+                <Button fx:id="viewFileBtn" text="View/Edit File" onAction="#onEditContentClicked"/>
                 <Button text="Share Selected" onAction="#onShareSelectedClicked"/>
                 <Button text="Delete Selected" onAction="#onDeleteFileClicked"/>
             </HBox>

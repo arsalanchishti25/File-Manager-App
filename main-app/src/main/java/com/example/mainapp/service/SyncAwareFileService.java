@@ -86,6 +86,14 @@ public class SyncAwareFileService {
         }
     }
 
+    public File updateFile(File existingFile, long userId, Path sourcePath) throws Exception {
+        return fileService.updateFile(existingFile, userId, sourcePath);
+    }
+
+    public File captureUpdateSnapshot(File selectedFile, long userId) {
+        return fileService.captureUpdateSnapshot(selectedFile, userId);
+    }
+
     /**
      * Offline upload: Store file locally and queue for later sync.
      * NO CHANGES: Offline logic remains the same

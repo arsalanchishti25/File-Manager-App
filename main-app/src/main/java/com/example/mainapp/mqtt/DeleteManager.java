@@ -5,6 +5,7 @@ import com.example.mainapp.model.File;
 import com.example.mainapp.model.FileChunkMetadata;
 import com.example.mainapp.repository.FileRepository;
 import com.example.mainapp.service.PermissionService;
+import com.example.mainapp.service.FileOperationLock;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 
@@ -42,6 +43,16 @@ public class DeleteManager {
      * 6. Delete metadata from MySQL
      */
     public void deleteFile(long fileId, long userId, boolean isAdmin) throws Exception {
+        var fileLock = FileOperationLock.forFile(fileId);
+        fileLock.lockInterruptibly();
+        try {
+            deleteFileLocked(fileId, userId, isAdmin);
+        } finally {
+            fileLock.unlock();
+        }
+    }
+
+    private void deleteFileLocked(long fileId, long userId, boolean isAdmin) throws Exception {
         System.out.println("[DeleteManager] Starting delete for file " + fileId);
 
         // Step 1: Verify ownership
@@ -54,6 +65,9 @@ public class DeleteManager {
 
         // Step 2: Get chunk metadata (need volume groups)
         List<FileChunkMetadata> chunks = fileRepository.getChunksForFile(fileId);
+        if (chunks.size() != 4) {
+            throw new Exception("Incomplete chunk metadata for file " + fileId);
+        }
         System.out.println("[DeleteManager] Found " + chunks.size() + " chunks to delete");
 
         try {
@@ -63,6 +77,7 @@ public class DeleteManager {
                 JsonObject chunkObj = new JsonObject();
                 chunkObj.addProperty("chunkOrder", chunk.getChunkOrder());
                 chunkObj.addProperty("volumeGroup", chunk.getVolumeGroup());
+                chunkObj.addProperty("fsId", chunk.getStorageLocation());
                 chunkInfo.add(chunkObj);
             }
 
@@ -91,8 +106,12 @@ public class DeleteManager {
 
             // Step 4: Parse LB response
             JsonObject lbJson = mqttClient.getGson().fromJson(lbResponse, JsonObject.class);
-            
-            if (!lbJson.has("success") || !lbJson.get("success").getAsBoolean()) {
+            if (!lbJson.has("fileId") || lbJson.get("fileId").getAsLong() != fileId
+                    || !lbJson.has("operationId")
+                    || !operationRequest.getOperationId().equals(lbJson.get("operationId").getAsString())
+                    || !lbJson.has("correlationId")
+                    || !operationRequest.getCorrelationId().equals(lbJson.get("correlationId").getAsString())
+                    || !lbJson.has("success") || !lbJson.get("success").getAsBoolean()) {
                 String error = lbJson.has("message") ? lbJson.get("message").getAsString() : "Unknown error";
                 throw new Exception("Load Balancer failed to delete: " + error);
             }

@@ -157,8 +157,24 @@ public class MqttMessageHandler {
             File result = downloadHandler.processDownload(instructions);
             sendDownloadCompleteNotification(instructions, result);
         } catch (Exception e) {
+            publishDownloadFailure(instructions, e.getMessage());
             publishError(instructions.getOperationId(), instructions.getCorrelationId(),
                     instructions.getMainAppId(), "PROCESSING_FAILED", "Download processing failed");
+        }
+    }
+
+    private void publishDownloadFailure(DownloadInstructions instructions, String message) {
+        try {
+            JsonObject response = new JsonObject();
+            response.addProperty("status", "failed");
+            response.addProperty("fileId", instructions.getFileId());
+            response.addProperty("operationId", instructions.getOperationId());
+            response.addProperty("correlationId", instructions.getCorrelationId());
+            response.addProperty("message", message == null ? "Download failed" : message);
+            mqttBroker.publish(TopicConstants.downloadComplete(instructions.getMainAppId()),
+                    response.toString());
+        } catch (MqttException e) {
+            System.err.println("[MqttMessageHandler] Failed to publish download failure: " + e.getMessage());
         }
     }
 

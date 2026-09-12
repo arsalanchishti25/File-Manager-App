@@ -20,11 +20,20 @@ import javafx.scene.Node;
 import javafx.scene.control.*;
 import javafx.scene.control.cell.PropertyValueFactory;
 import javafx.scene.layout.GridPane;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
+import javafx.concurrent.Task;
 
 import java.io.IOException;
 import java.net.URL;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -59,6 +68,12 @@ public class MainController implements Initializable {
 
     @FXML
     private Button viewEventLogsBtn;
+
+    @FXML
+    private Button viewFileBtn;
+
+    @FXML
+    private Label statusLabel;
 
     private final ObservableList<File> fileData = FXCollections.observableArrayList();
 
@@ -248,32 +263,149 @@ public class MainController implements Initializable {
         File selected = fileTable.getSelectionModel().getSelectedItem();
         if (selected == null || currentUser == null) return;
 
-        try {
-            Path file = fileService.downloadFile(selected.getId(), currentUser.getId(), currentUser.isAdmin());
-            // java.io.File f = file.toFile();
-            eventLogger.logFileEdited(
-                    currentUser.getId(),
-                    selected.getId(),
-                    selected.getFilename()
-            );
-            System.out.println("[MainController] File downloaded to: " + file.toAbsolutePath());
-            // System.out.println("f: " + f);
-            openInNano(file);
-            // Step 3: Log the edit event
-            eventLogger.logFileEdited(
-                currentUser.getId(),
-                selected.getId(),
-                selected.getFilename()
-            );
-            System.out.println("[MainController] File opened in nano editor");
-        } catch (IOException e) {
-            System.err.println("Failed to edit " + selected.getFilename()
-                    + ". Error message: " + e.getMessage());
-            showError("Edit Failed", "Failed to download file: " + e.getMessage());
-        } catch (Exception e) {
-            System.err.println("Unexpected error during edit: " + e.getMessage());
-            showError("Edit Failed", "Unexpected error: " + e.getMessage());
+        System.out.println("[MainController] View File click received: fileId=" + selected.getId()
+                + ", filename=" + selected.getFilename());
+        viewFileBtn.setDisable(true);
+        statusLabel.setText("Downloading and reconstructing " + selected.getFilename() + "...");
+
+        Task<ViewerData> downloadTask = new Task<>() {
+            @Override
+            protected ViewerData call() throws Exception {
+                System.out.println("[MainController] Background download task started: fileId="
+                        + selected.getId());
+                Path path = fileService.downloadFile(selected.getId(), currentUser.getId(),
+                        currentUser.isAdmin());
+                if (path == null || !Files.exists(path) || !Files.isReadable(path)
+                        || Files.size(path) == 0) {
+                    throw new IOException("Downloaded file is missing/empty");
+                }
+                try {
+                    return new ViewerData(path, readTextFile(path), selected);
+                } catch (CharacterCodingException e) {
+                    throw new IOException(
+                            "This file was downloaded successfully but cannot be displayed as text.", e);
+                }
+            }
+        };
+        downloadTask.setOnSucceeded(succeeded -> {
+            try {
+                File editorSnapshot = fileService.captureUpdateSnapshot(selected, currentUser.getId());
+                openTextViewer(editorSnapshot.getFilename(),
+                        new ViewerData(downloadTask.getValue().path(),
+                                downloadTask.getValue().content(), editorSnapshot));
+                statusLabel.setText("");
+            } catch (Exception e) {
+                System.err.println("[MainController] In-app viewer failed");
+                e.printStackTrace();
+                statusLabel.setText(e.getMessage());
+                showError("View File Failed", e.getMessage());
+            } finally {
+                viewFileBtn.setDisable(false);
+            }
+        });
+        downloadTask.setOnFailed(failed -> {
+            Throwable error = downloadTask.getException();
+            System.err.println("[MainController] View File failed");
+            if (error != null) {
+                error.printStackTrace();
+            }
+            statusLabel.setText(error == null ? "View File failed" : error.getMessage());
+            showError("View File Failed", error == null ? "Unknown download error" : error.getMessage());
+            viewFileBtn.setDisable(false);
+        });
+        downloadTask.setOnCancelled(cancelled -> {
+            statusLabel.setText("View File cancelled");
+            viewFileBtn.setDisable(false);
+        });
+        Thread downloadThread = new Thread(downloadTask, "view-file-download");
+        downloadThread.setDaemon(true);
+        downloadThread.start();
+    }
+
+    private String readTextFile(Path path) throws IOException {
+        byte[] bytes = Files.readAllBytes(path);
+        for (byte value : bytes) {
+            if (value == 0 || (value < 0x20 && value != '\n'
+                    && value != '\r' && value != '\t')) {
+                throw new CharacterCodingException();
+            }
         }
+        return StandardCharsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+                .decode(ByteBuffer.wrap(bytes))
+                .toString();
+    }
+
+    private void openTextViewer(String originalFilename, ViewerData viewerData) {
+        TextArea textArea = new TextArea(viewerData.content());
+        textArea.setWrapText(false);
+        Button saveButton = new Button("Save Changes");
+        Label editorStatus = new Label("Edit the file and select Save Changes to update it.");
+        Button closeButton = new Button("Close");
+        saveButton.setDisable(false);
+
+        Stage editorStage = new Stage();
+        closeButton.setOnAction(ignored -> editorStage.close());
+        saveButton.setOnAction(ignored -> {
+            saveButton.setDisable(true);
+            closeButton.setDisable(true);
+            editorStatus.setText("Saving changes...");
+            try {
+                Files.writeString(viewerData.path(), textArea.getText(), StandardCharsets.UTF_8);
+                if (!Files.exists(viewerData.path()) || !Files.isReadable(viewerData.path())) {
+                    throw new IOException("Updated file validation failed.");
+                }
+            } catch (Exception e) {
+                editorStatus.setText(e.getMessage());
+                saveButton.setDisable(false);
+                closeButton.setDisable(false);
+                return;
+            }
+
+            Task<File> saveTask = new Task<>() {
+                @Override
+                protected File call() throws Exception {
+                    return fileService.updateFile(viewerData.file(), currentUser.getId(),
+                            viewerData.path());
+                }
+            };
+            saveTask.setOnSucceeded(done -> {
+                File updated = saveTask.getValue();
+                int index = fileData.indexOf(viewerData.file());
+                if (index >= 0) {
+                    fileData.set(index, updated);
+                }
+                fileTable.refresh();
+                editorStatus.setText("Saved successfully.");
+                statusLabel.setText("File updated successfully.");
+                saveButton.setDisable(false);
+                closeButton.setDisable(false);
+            });
+            saveTask.setOnFailed(failed -> {
+                Throwable error = saveTask.getException();
+                System.err.println("[MainController] File update failed");
+                if (error != null) {
+                    error.printStackTrace();
+                }
+                editorStatus.setText(error == null ? "Update failed." : error.getMessage());
+                saveButton.setDisable(false);
+                closeButton.setDisable(false);
+            });
+            Thread saveThread = new Thread(saveTask, "file-update");
+            saveThread.setDaemon(true);
+            saveThread.start();
+        });
+        HBox actions = new HBox(10, saveButton, closeButton);
+        VBox root = new VBox(10, editorStatus, textArea, actions);
+        VBox.setVgrow(textArea, Priority.ALWAYS);
+        root.setPadding(new javafx.geometry.Insets(10));
+        editorStage.setTitle("View File - " + originalFilename);
+        editorStage.setScene(new javafx.scene.Scene(root, 700, 500));
+        editorStage.show();
+    }
+
+    private record ViewerData(Path path, String content, File file) {
     }
 
     @FXML

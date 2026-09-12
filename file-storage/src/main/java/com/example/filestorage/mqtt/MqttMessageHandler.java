@@ -59,7 +59,12 @@ public class MqttMessageHandler {
             System.out.println("[MqttMessageHandler] Processing delete: fileId=" + fileId + 
                              ", chunkOrder=" + chunkOrder + ", fsId=" + fsId);
 
-            // TODO: Validate that fsId matches this container's ID
+            if (!storageService.getConfig().getContainerId().equals(fsId)) {
+                sendDeleteResponse(command, "failed");
+                throw new IllegalArgumentException("Delete command targeted " + fsId
+                        + " but this container is "
+                        + storageService.getConfig().getContainerId());
+            }
 
             // Delete the chunk
             try {

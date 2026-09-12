@@ -17,6 +17,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
+import java.util.Objects;
 
 /**
  * File service for the Main App.
@@ -141,6 +144,66 @@ public class FileService {
     public Path downloadFile(long fileId, long userId, boolean isAdmin) throws Exception {
         // CHANGE 9: Call downloadManager instead of inline implementation
         return downloadManager.downloadFile(fileId, userId, isAdmin);
+    }
+
+    public File updateFile(File existingFile, long userId, Path sourcePath) throws Exception {
+        if (existingFile == null || existingFile.getOwnerId() != userId) {
+            throw new IllegalArgumentException("Permission denied");
+        }
+        var lock = FileOperationLock.forFile(existingFile.getId());
+        lock.lockInterruptibly();
+        try {
+            File current = fileRepository.findById(existingFile.getId())
+                    .orElseThrow(() -> new IllegalStateException("File was deleted while editing"));
+            System.out.println("[FileService] Update identity check: snapshot fileId="
+                    + existingFile.getId() + ", filename=" + existingFile.getFilename()
+                    + ", ownerId=" + existingFile.getOwnerId()
+                    + ", capturedLastModified=" + existingFile.getLastModified()
+                    + ", currentLastModified=" + current.getLastModified()
+                    + ", currentFilename=" + current.getFilename()
+                    + ", currentOwnerId=" + current.getOwnerId());
+            validateUpdateIdentity(existingFile, current, userId);
+            return uploadManager.updateFile(current, userId, sourcePath, Files.size(sourcePath),
+                    existingFile.getFilename());
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public File captureUpdateSnapshot(File selectedFile, long userId) {
+        if (selectedFile == null || selectedFile.getId() <= 0
+                || selectedFile.getOwnerId() != userId
+                || selectedFile.getFilename() == null
+                || selectedFile.getFilename().isBlank()) {
+            throw new IllegalArgumentException("Invalid file identity");
+        }
+        File remote = fileRepository.findById(selectedFile.getId())
+                .orElseThrow(() -> new IllegalStateException("File was deleted while editing"));
+        if (remote.getOwnerId() != userId
+                || !remote.getFilename().equals(selectedFile.getFilename())) {
+            throw new IllegalStateException("The file identity changed while editing");
+        }
+        return remote;
+    }
+
+    private static LocalDateTime normalizeVersion(LocalDateTime value) {
+        return value == null ? null : value.truncatedTo(ChronoUnit.MICROS);
+    }
+
+    static void validateUpdateIdentity(File snapshot, File current, long userId) {
+        if (snapshot == null || current == null
+                || snapshot.getId() <= 0
+                || snapshot.getId() != current.getId()
+                || snapshot.getOwnerId() != userId
+                || current.getOwnerId() != userId
+                || !Objects.equals(snapshot.getFilename(), current.getFilename())) {
+            throw new IllegalArgumentException("File update identity does not match existing metadata");
+        }
+        if (!Objects.equals(normalizeVersion(current.getLastModified()),
+                normalizeVersion(snapshot.getLastModified()))) {
+            throw new IllegalStateException(
+                    "The file changed elsewhere. Reopen it before saving.");
+        }
     }
 
     /**

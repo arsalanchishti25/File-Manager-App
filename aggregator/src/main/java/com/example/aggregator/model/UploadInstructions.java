@@ -14,6 +14,8 @@ public class UploadInstructions {
     private String operationId;
     private String correlationId;
     private String sourceServiceId;
+    private boolean updateExisting;
+    private String stagingToken;
     private List<FSTarget> fsContainers;
 
     public static class FSTarget {
@@ -114,6 +116,10 @@ public class UploadInstructions {
     public void setCorrelationId(String correlationId) { this.correlationId = correlationId; }
     public String getSourceServiceId() { return sourceServiceId; }
     public void setSourceServiceId(String sourceServiceId) { this.sourceServiceId = sourceServiceId; }
+    public boolean isUpdateExisting() { return updateExisting; }
+    public void setUpdateExisting(boolean updateExisting) { this.updateExisting = updateExisting; }
+    public String getStagingToken() { return stagingToken; }
+    public void setStagingToken(String stagingToken) { this.stagingToken = stagingToken; }
 
     public List<FSTarget> getFsContainers() {
         return fsContainers;

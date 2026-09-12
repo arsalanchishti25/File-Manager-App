@@ -6,6 +6,7 @@ import com.example.mainapp.model.FileChunkMetadata;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Collection;
 
 /**
  * Repository interface for File and FileChunk metadata operations.
@@ -80,6 +81,19 @@ public interface FileRepository {
      * @param volumeGroup Volume group (1-4)
      */
     void saveChunk(long fileId, int chunkOrder, String checksum, String storageLocation, int volumeGroup);
+
+    default void replaceChunks(long fileId, Collection<FileChunkMetadata> chunks) {
+        deleteChunksByFileId(fileId);
+        for (FileChunkMetadata chunk : chunks) {
+            saveChunk(fileId, chunk.getChunkOrder(), chunk.getCrc32Checksum(),
+                    chunk.getStorageLocation(), chunk.getVolumeGroup());
+        }
+    }
+
+    default void replaceFileAndChunks(File file, Collection<FileChunkMetadata> chunks) {
+        replaceChunks(file.getId(), chunks);
+        updateFile(file);
+    }
 
     /**
      * Get all chunk metadata for a specific file.
