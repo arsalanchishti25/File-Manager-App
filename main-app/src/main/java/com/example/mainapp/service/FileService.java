@@ -57,7 +57,7 @@ public class FileService {
         // this.mainAppId = mainAppId;
         
         // CHANGE 3: Initialize MQTT client
-        this.mqttClient = new MqttClient(brokerUrl, mainAppId); 
+        this.mqttClient = MqttClient.shared(brokerUrl, mainAppId);
         this.mqttClient.connect();
         
         // CHANGE 4: Initialize managers with dependencies

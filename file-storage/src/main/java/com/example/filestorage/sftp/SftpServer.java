@@ -1,6 +1,7 @@
 package com.example.filestorage.sftp;
 
 import org.apache.sshd.server.SshServer;
+import org.apache.sshd.common.file.virtualfs.VirtualFileSystemFactory;
 import org.apache.sshd.server.keyprovider.SimpleGeneratorHostKeyProvider;
 import org.apache.sshd.sftp.server.SftpSubsystemFactory;
 
@@ -61,6 +62,7 @@ public class SftpServer {
                 System.err.println("[SftpServer] Failed to create storage directory: " + storageBasePath);
             }
         }
+        sshServer.setFileSystemFactory(new VirtualFileSystemFactory(Paths.get(storageBasePath)));
 
         try {
             sshServer.start();

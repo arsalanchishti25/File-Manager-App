@@ -10,6 +10,7 @@ public class UploadInstructions {
     private String filename;
     private long fileSize;
     private String mainAppId;  // Added: identifies which Main App instance initiated this upload
+    private long userId;
     private String operationId;
     private String correlationId;
     private String sourceServiceId;
@@ -105,6 +106,8 @@ public class UploadInstructions {
     public void setMainAppId(String mainAppId) {
         this.mainAppId = mainAppId;
     }
+    public long getUserId() { return userId; }
+    public void setUserId(long userId) { this.userId = userId; }
     public String getOperationId() { return operationId; }
     public void setOperationId(String operationId) { this.operationId = operationId; }
     public String getCorrelationId() { return correlationId; }
