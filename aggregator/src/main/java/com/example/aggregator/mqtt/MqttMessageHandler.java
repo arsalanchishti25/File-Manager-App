@@ -59,18 +59,8 @@ public class MqttMessageHandler {
             
             while (running) {
                 try {
-                    // Check for instructions.json files
-                    Path workingPath = Paths.get(config.getWorkingDirectory());
-                    
-                    try (DirectoryStream<Path> stream = Files.newDirectoryStream(workingPath, "instructions*.json")) {
-                        for (Path instructionsFile : stream) {
-                            System.out.println("\n[MqttMessageHandler] Found instructions file: " + 
-                                             instructionsFile.getFileName());
-                            processInstructions(instructionsFile.toFile());
-                        }
-                    }
-                    
                     // Check for retrieval_instructions.json files
+                    Path workingPath = Paths.get(config.getWorkingDirectory());
                     try (DirectoryStream<Path> stream = Files.newDirectoryStream(workingPath, "retrieval_instructions*.json")) {
                         for (Path instructionsFile : stream) {
                             System.out.println("\n[MqttMessageHandler] Found retrieval instructions file: " + 
@@ -129,7 +119,7 @@ public class MqttMessageHandler {
         if (instructions == null || instructions.getOperationId() == null
                 || instructions.getOperationId().isBlank()
                 || instructions.getMainAppId() == null || instructions.getMainAppId().isBlank()
-                || instructions.getFileId() <= 0 || instructions.getFilename() == null
+                || instructions.getUserId() <= 0 || instructions.getFileId() <= 0 || instructions.getFilename() == null
                 || instructions.getFilename().isBlank() || instructions.getFileSize() < 0
                 || instructions.getFsContainers() == null || instructions.getFsContainers().size() != 4) {
             throw new IllegalArgumentException("INVALID_TARGET");
@@ -156,6 +146,7 @@ public class MqttMessageHandler {
             sendUploadCompleteNotification(instructions,
                     uploadHandler.processUpload(uploadedFile, instructions));
         } catch (Exception e) {
+            publishUploadFailure(instructions, e.getMessage());
             publishError(instructions.getOperationId(), instructions.getCorrelationId(),
                     instructions.getMainAppId(), "PROCESSING_FAILED", "Upload processing failed");
         }
@@ -256,23 +247,15 @@ public class MqttMessageHandler {
             }
 
             // Build chunk metadata array so UploadManager can persist it
-            JsonArray chunksArray = new JsonArray();
-            List<UploadInstructions.FSTarget> fsTargets = instructions.getFsContainers();
-            for (int i = 0; i < fsTargets.size() && i < checksums.size(); i++) {
-                UploadInstructions.FSTarget target = fsTargets.get(i);
-                JsonObject chunkJson = new JsonObject();
-                chunkJson.addProperty("chunkOrder", target.getChunkOrder());
-                chunkJson.addProperty("volumeGroup", target.getVolumeGroup());
-                chunkJson.addProperty("fsId", target.getFsId());
-                chunkJson.addProperty("crc32", checksums.get(i));
-                chunksArray.add(chunkJson);
-            }
+            JsonArray chunksArray = buildCompletionChunks(instructions.getFsContainers(), checksums);
 
             JsonObject notification = new JsonObject();
             notification.addProperty("fileId", instructions.getFileId());
             notification.addProperty("operationId", instructions.getOperationId());
             notification.addProperty("correlationId", instructions.getCorrelationId());
             notification.addProperty("mainAppId", mainAppId);
+            notification.addProperty("userId", instructions.getUserId());
+            notification.addProperty("filename", instructions.getFilename());
             notification.addProperty("status", "complete");
             notification.addProperty("aggregatorId", config.getAggregatorId());
             notification.add("chunks", chunksArray);
@@ -285,6 +268,41 @@ public class MqttMessageHandler {
 
         } catch (MqttException e) {
             System.err.println("[MqttMessageHandler] Failed to send upload notification: " + e.getMessage());
+        }
+
+    }
+
+    static JsonArray buildCompletionChunks(List<UploadInstructions.FSTarget> fsTargets,
+                                            List<String> checksums) {
+        JsonArray chunksArray = new JsonArray();
+        for (int i = 0; i < fsTargets.size() && i < checksums.size(); i++) {
+            UploadInstructions.FSTarget target = fsTargets.get(i);
+            JsonObject chunkJson = new JsonObject();
+            chunkJson.addProperty("chunkOrder", i + 1);
+            chunkJson.addProperty("volumeGroup", target.getVolumeGroup());
+            chunkJson.addProperty("fsId", target.getFsId());
+            chunkJson.addProperty("crc32", checksums.get(i));
+            chunksArray.add(chunkJson);
+        }
+        return chunksArray;
+    }
+
+    private void publishUploadFailure(UploadInstructions instructions, String message) {
+        try {
+            JsonObject notification = new JsonObject();
+            notification.addProperty("fileId", instructions.getFileId());
+            notification.addProperty("operationId", instructions.getOperationId());
+            notification.addProperty("correlationId", instructions.getCorrelationId());
+            notification.addProperty("mainAppId", instructions.getMainAppId());
+            notification.addProperty("userId", instructions.getUserId());
+            notification.addProperty("filename", instructions.getFilename());
+            notification.addProperty("status", "failed");
+            notification.addProperty("error", message == null ? "Upload processing failed" : message);
+            mqttBroker.publish(TopicConstants.uploadComplete(instructions.getMainAppId()),
+                    notification.toString());
+        } catch (MqttException e) {
+            System.err.println("[MqttMessageHandler] Failed to send upload failure notification: "
+                    + e.getMessage());
         }
     }
 

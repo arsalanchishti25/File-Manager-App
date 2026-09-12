@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * MQTT Client for Main App.
@@ -21,20 +22,48 @@ public class MqttClient {
     private final String brokerUrl;
     private IMqttClient mqttClient;
     private final Gson gson = new Gson();
+    private final boolean sharedInstance;
+    private static final Map<String, MqttClient> SHARED_CLIENTS = new ConcurrentHashMap<>();
     
     // Store pending responses: topic -> response payload
     private final Map<String, String> pendingResponses = new ConcurrentHashMap<>();
     private final Map<String, CountDownLatch> responseLatchesMap = new ConcurrentHashMap<>();
 
     public MqttClient(String brokerUrl, String clientId) {
+        this(brokerUrl, clientId, false);
+    }
+
+    private MqttClient(String brokerUrl, String clientId, boolean sharedInstance) {
         this.brokerUrl = brokerUrl;
         this.clientId = clientId;
+        this.sharedInstance = sharedInstance;
+        System.out.println("[MqttClient-" + clientId + "] Created MQTT client instance");
+    }
+
+    public static MqttClient shared(String brokerUrl, String clientId) {
+        String key = brokerUrl + "\n" + clientId;
+        return SHARED_CLIENTS.computeIfAbsent(key, ignored ->
+                new MqttClient(brokerUrl, clientId, true));
     }
 
     /**
      * Connect to MQTT broker.
      */
-    public void connect() throws MqttException {
+    public synchronized void connect() throws MqttException {
+        if (mqttClient != null && mqttClient.isConnected()) {
+            System.out.println("[MqttClient-" + clientId + "] Already connected; reusing client");
+            return;
+        }
+        if (mqttClient != null) {
+            try {
+                mqttClient.close();
+                System.out.println("[MqttClient-" + clientId
+                        + "] Closed stale disconnected Paho client");
+            } catch (MqttException e) {
+                System.err.println("[MqttClient-" + clientId
+                        + "] Failed to close stale Paho client: " + e.getMessage());
+            }
+        }
         mqttClient = new org.eclipse.paho.client.mqttv3.MqttClient(brokerUrl, clientId, new MemoryPersistence());
 
         MqttConnectOptions options = new MqttConnectOptions();
@@ -44,6 +73,7 @@ public class MqttClient {
         options.setKeepAliveInterval(30);
  
         mqttClient.connect(options);
+        System.out.println("[MqttClient-" + clientId + "] Connected");
         System.out.println("[MqttClient-" + clientId + "] Connected to broker: " + brokerUrl);
     }
 
@@ -51,10 +81,16 @@ public class MqttClient {
      * Disconnect from MQTT broker.
      */
     public void disconnect() {
+        if (sharedInstance) {
+            System.out.println("[MqttClient-" + clientId + "] Shared client retained");
+            return;
+        }
         try {
             if (mqttClient != null && mqttClient.isConnected()) {
+                System.out.println("[MqttClient-" + clientId + "] Disconnecting");
                 mqttClient.disconnect();
                 mqttClient.close();
+                System.out.println("[MqttClient-" + clientId + "] Closed");
                 System.out.println("[MqttClient-" + clientId + "] Disconnected");
             }
         } catch (MqttException e) {
@@ -168,6 +204,53 @@ public class MqttClient {
             return null;
         }
     }
+
+    public MessageWaiter prepareMessageWait(String topic) throws MqttException {
+        AtomicReference<String> receivedMessage = new AtomicReference<>();
+        CountDownLatch latch = new CountDownLatch(1);
+        subscribe(topic, (t, message) -> {
+            receivedMessage.set(new String(message.getPayload()));
+            latch.countDown();
+        });
+        return new MessageWaiter(topic, receivedMessage, latch);
+    }
+
+    public final class MessageWaiter {
+        private final String topic;
+        private final AtomicReference<String> receivedMessage;
+        private final CountDownLatch latch;
+        private boolean closed;
+
+        private MessageWaiter(String topic, AtomicReference<String> receivedMessage,
+                              CountDownLatch latch) {
+            this.topic = topic;
+            this.receivedMessage = receivedMessage;
+            this.latch = latch;
+        }
+
+        public String await(long timeoutMs) throws InterruptedException {
+            try {
+                return latch.await(timeoutMs, TimeUnit.MILLISECONDS)
+                        ? receivedMessage.get() : null;
+            } finally {
+                close();
+            }
+        }
+
+        public void close() {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            try {
+                mqttClient.unsubscribe(topic);
+            } catch (MqttException e) {
+                System.err.println("[MqttClient-" + clientId
+                        + "] Failed to unsubscribe from " + topic + ": " + e.getMessage());
+            }
+        }
+    }
+
     public boolean isConnected() {
         return mqttClient != null && mqttClient.isConnected();
     }

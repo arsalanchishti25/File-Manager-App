@@ -42,9 +42,12 @@ public class TopicPublisher {
 
         // Add FS containers info
         JsonArray fsArray = new JsonArray();
-        for (FSContainerInfo fs : fsContainers) {
+        for (int i = 0; i < fsContainers.size(); i++) {
+            FSContainerInfo fs = fsContainers.get(i);
             JsonObject fsJson = new JsonObject();
             fsJson.addProperty("id", fs.getId());
+            fsJson.addProperty("fsId", fs.getId());
+            fsJson.addProperty("chunkOrder", i + 1);
             fsJson.addProperty("ip", fs.getIp());
             fsJson.addProperty("port", fs.getPort());
             fsJson.addProperty("volumeGroup", fs.getVolumeGroup());
@@ -80,9 +83,12 @@ public class TopicPublisher {
 
         // Add FS containers info
         JsonArray fsArray = new JsonArray();
-        for (FSContainerInfo fs : fsContainers) {
+        for (int i = 0; i < fsContainers.size(); i++) {
+            FSContainerInfo fs = fsContainers.get(i);
             JsonObject fsJson = new JsonObject();
             fsJson.addProperty("id", fs.getId());
+            fsJson.addProperty("fsId", fs.getId());
+            fsJson.addProperty("chunkOrder", i + 1);
             fsJson.addProperty("ip", fs.getIp());
             fsJson.addProperty("port", fs.getPort());
             fsJson.addProperty("volumeGroup", fs.getVolumeGroup());

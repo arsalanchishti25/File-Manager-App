@@ -43,6 +43,10 @@ public class UploadHandler {
      * Returns list of CRC32 checksums for each chunk.
      */
     public List<String> processUpload(File originalFile, UploadInstructions instructions) throws Exception {
+        if (instructions.getFsContainers() == null || instructions.getFsContainers().size() != 4) {
+            throw new IllegalArgumentException("Upload requires exactly four file-storage targets");
+        }
+
         System.out.println("\n[UploadHandler] ═══ Starting Upload Process ═══");
         System.out.println("  File ID: " + instructions.getFileId());
         System.out.println("  Filename: " + instructions.getFilename());
@@ -85,6 +89,12 @@ public class UploadHandler {
         System.out.println("\n[UploadHandler] Step 4: Uploading chunks to FS containers...");
         for (int i = 0; i < 4; i++) {
             UploadInstructions.FSTarget target = instructions.getFsContainers().get(i);
+            if (target.getFsId() == null || target.getFsId().isBlank()
+                    || target.getChunkOrder() != i + 1
+                    || target.getIp() == null || target.getIp().isBlank()
+                    || target.getPort() <= 0) {
+                throw new IllegalArgumentException("Invalid file-storage target for chunk " + (i + 1));
+            }
             
             System.out.println("  Uploading chunk " + (i + 1) + " to " + target.getFsId() + 
                              " (" + target.getIp() + ":" + target.getPort() + ")");

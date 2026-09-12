@@ -1,6 +1,7 @@
 package com.example.aggregator.sftp;
 
 import org.apache.sshd.server.SshServer;
+import org.apache.sshd.common.file.virtualfs.VirtualFileSystemFactory;
 import org.apache.sshd.server.keyprovider.SimpleGeneratorHostKeyProvider;
 import org.apache.sshd.sftp.server.SftpSubsystemFactory;
 import java.io.File;
@@ -62,6 +63,7 @@ public class SftpServer {
                 System.err.println("[SftpServer] Failed to create working directory: " + workingDirectory);
             }
         }
+        sshServer.setFileSystemFactory(new VirtualFileSystemFactory(Paths.get(workingDirectory)));
 
         try {
             sshServer.start();
