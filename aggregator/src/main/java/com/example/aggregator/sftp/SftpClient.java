@@ -69,6 +69,14 @@ public class SftpClient {
         }
     }
 
+    public void renameFile(String oldRemoteFilePath, String newRemoteFilePath) throws SftpException {
+        channelSftp.rename(oldRemoteFilePath, newRemoteFilePath);
+    }
+
+    public void deleteFile(String remoteFilePath) throws SftpException {
+        channelSftp.rm(remoteFilePath);
+    }
+
     /**
      * Download a file from remote server.
      */

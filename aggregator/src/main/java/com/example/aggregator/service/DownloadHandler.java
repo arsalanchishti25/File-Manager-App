@@ -7,6 +7,7 @@ import javax.crypto.SecretKey;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.nio.file.Files;
+import java.util.Comparator;
 
 /**
  * Handles file download workflow:
@@ -36,16 +37,37 @@ public class DownloadHandler {
      * Returns the reassembled file.
      */
     public File processDownload(DownloadInstructions instructions) throws Exception {
+        if (instructions == null) {
+            throw new IllegalArgumentException("Download instructions are required");
+        }
         System.out.println("\n[DownloadHandler] ═══ Starting Download Process ═══");
         System.out.println("  File ID: " + instructions.getFileId());
         System.out.println("  Filename: " + instructions.getFilename());
 
-        // Step 1: Retrieve encrypted chunks from FS containers
-        System.out.println("\n[DownloadHandler] Step 1: Retrieving chunks from FS containers...");
+        if (instructions.getFileId() <= 0
+                || instructions.getChunks() == null || instructions.getChunks().size() != 4) {
+            throw new IllegalArgumentException("Download requires four chunks");
+        }
+        instructions.getChunks().sort(Comparator.comparingInt(DownloadInstructions.ChunkLocation::getChunkOrder));
+        for (int i = 0; i < instructions.getChunks().size(); i++) {
+            if (instructions.getChunks().get(i).getChunkOrder() != i + 1
+                    || instructions.getChunks().get(i).getFsId() == null
+                    || instructions.getChunks().get(i).getFsId().isBlank()
+                    || instructions.getChunks().get(i).getCrc32() == null
+                    || instructions.getChunks().get(i).getCrc32().isBlank()) {
+                throw new IllegalArgumentException("Invalid download chunk metadata at order " + (i + 1));
+            }
+        }
+
         File[] encryptedChunks = new File[4];
-        
-        for (int i = 0; i < 4; i++) {
-            DownloadInstructions.ChunkLocation chunkLoc = instructions.getChunks().get(i);
+        File[] decryptedChunks = new File[4];
+        File reassembledFile = null;
+        boolean completed = false;
+        try {
+            // Step 1: Retrieve encrypted chunks from FS containers
+            System.out.println("\n[DownloadHandler] Step 1: Retrieving chunks from FS containers...");
+            for (int i = 0; i < 4; i++) {
+                DownloadInstructions.ChunkLocation chunkLoc = instructions.getChunks().get(i);
             
             System.out.println("  Retrieving chunk " + (i + 1) + " from " + chunkLoc.getFsId() + 
                              " (" + chunkLoc.getIp() + ":" + chunkLoc.getPort() + ")");
@@ -54,31 +76,20 @@ public class DownloadHandler {
                                                 instructions.getFileId(), i + 1);
             File chunkFile = new File(workingDir, chunkFilename);
             
-            // TODO: Implement actual SFTP download
             downloadChunkFromFS(chunkFile, chunkLoc);
             
             encryptedChunks[i] = chunkFile;
-        }
-
-        // Step 2: Verify CRC32 checksums
-        System.out.println("\n[DownloadHandler] Step 2: Verifying checksums...");
-        for (int i = 0; i < 4; i++) {
-            DownloadInstructions.ChunkLocation chunkLoc = instructions.getChunks().get(i);
-            boolean valid = chunkService.verifyCRC32(encryptedChunks[i], chunkLoc.getCrc32());
-            
-            if (!valid) {
-                throw new Exception("CRC32 verification failed for chunk " + (i + 1));
             }
-        }
 
-        // Step 3: Decrypt chunks
-        System.out.println("\n[DownloadHandler] Step 3: Decrypting chunks...");
-        SecretKey encryptionKey = encryptionService.getConfiguredKey();
-        File[] decryptedChunks = new File[4];
-        
-        for (int i = 0; i < 4; i++) {
-            byte[] encryptedData = Files.readAllBytes(encryptedChunks[i].toPath());
-            byte[] decryptedData = encryptionService.decrypt(encryptedData, encryptionKey);
+            // Step 2: Verify CRC32 checksums and decrypt chunks.
+            SecretKey encryptionKey = encryptionService.getConfiguredKey();
+            for (int i = 0; i < 4; i++) {
+                DownloadInstructions.ChunkLocation chunkLoc = instructions.getChunks().get(i);
+                if (!chunkService.verifyCRC32(encryptedChunks[i], chunkLoc.getCrc32())) {
+                    throw new Exception("CRC32 verification failed for chunk " + (i + 1));
+                }
+                byte[] decryptedData = encryptionService.decrypt(
+                        Files.readAllBytes(encryptedChunks[i].toPath()), encryptionKey);
             
             String decryptedFilename = String.format("fileId_%d_chunk%d.tmp", 
                                                     instructions.getFileId(), i + 1);
@@ -88,31 +99,28 @@ public class DownloadHandler {
                 fos.write(decryptedData);
             }
             
-            decryptedChunks[i] = decryptedFile;
-            System.out.println("  Decrypted chunk " + (i + 1) + ": " + decryptedFile.getName());
-        }
+                decryptedChunks[i] = decryptedFile;
+            }
 
-        // Step 4: Reassemble file
-        System.out.println("\n[DownloadHandler] Step 4: Reassembling file...");
-        String outputFilename = String.format("fileId_%d_reassembled.bin", instructions.getFileId());
-        File reassembledFile = chunkService.reassembleChunks(decryptedChunks, outputFilename, workingDir);
-
-        // Step 5: Cleanup temporary files
-        System.out.println("\n[DownloadHandler] Step 5: Cleaning up temporary files...");
-        for (File chunk : encryptedChunks) {
-            chunk.delete();
+            String outputFilename = String.format("fileId_%d_reassembled.bin", instructions.getFileId());
+            reassembledFile = chunkService.reassembleChunks(decryptedChunks, outputFilename, workingDir);
+            completed = true;
+            return reassembledFile;
+        } finally {
+            for (File chunk : encryptedChunks) {
+                if (chunk != null) chunk.delete();
+            }
+            for (File chunk : decryptedChunks) {
+                if (chunk != null) chunk.delete();
+            }
+            if (!completed && reassembledFile != null) {
+                reassembledFile.delete();
+            }
         }
-        for (File chunk : decryptedChunks) {
-            chunk.delete();
-        }
-
-        System.out.println("\n[DownloadHandler] ═══ Download Complete ═══\n");
-        return reassembledFile;
     }
 
     /**
      * Download a chunk from FS container via SFTP.
-     * TODO: Implement actual SFTP connection and download
      */
     private void downloadChunkFromFS(File localFile, DownloadInstructions.ChunkLocation chunkLoc) throws Exception {
         SftpClient sftpClient = new SftpClient(chunkLoc.getIp(), chunkLoc.getPort(),

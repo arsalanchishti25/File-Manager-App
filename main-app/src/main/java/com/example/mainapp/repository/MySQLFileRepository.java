@@ -14,6 +14,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Collection;
 
 public class MySQLFileRepository implements FileRepository {
 
@@ -84,6 +85,80 @@ public class MySQLFileRepository implements FileRepository {
         } catch (SQLException e) {
             System.err.println("MySQLFileRepository.saveChunk error: " + e.getMessage());
             throw new RuntimeException("Failed to save chunk: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void replaceChunks(long fileId, Collection<FileChunkMetadata> chunks) {
+        String deleteSql = "DELETE FROM file_chunks WHERE file_id = ?";
+        String insertSql = "INSERT INTO file_chunks "
+                + "(file_id, chunk_order, crc32_checksum, storage_location, volume_group) "
+                + "VALUES (?, ?, ?, ?, ?)";
+        try (Connection conn = dataSource.getConnection()) {
+            conn.setAutoCommit(false);
+            try (PreparedStatement delete = conn.prepareStatement(deleteSql);
+                 PreparedStatement insert = conn.prepareStatement(insertSql)) {
+                delete.setLong(1, fileId);
+                delete.executeUpdate();
+                for (FileChunkMetadata chunk : chunks) {
+                    insert.setLong(1, fileId);
+                    insert.setInt(2, chunk.getChunkOrder());
+                    insert.setString(3, chunk.getCrc32Checksum());
+                    insert.setString(4, chunk.getStorageLocation());
+                    insert.setInt(5, chunk.getVolumeGroup());
+                    insert.addBatch();
+                }
+                insert.executeBatch();
+                conn.commit();
+            } catch (SQLException e) {
+                conn.rollback();
+                throw e;
+            } finally {
+                conn.setAutoCommit(true);
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to replace chunk metadata: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void replaceFileAndChunks(File file, Collection<FileChunkMetadata> chunks) {
+        String deleteSql = "DELETE FROM file_chunks WHERE file_id = ?";
+        String insertSql = "INSERT INTO file_chunks "
+                + "(file_id, chunk_order, crc32_checksum, storage_location, volume_group) "
+                + "VALUES (?, ?, ?, ?, ?)";
+        String updateSql = "UPDATE files SET size_bytes = ?, last_modified = ? WHERE id = ?";
+        try (Connection conn = dataSource.getConnection()) {
+            conn.setAutoCommit(false);
+            try (PreparedStatement delete = conn.prepareStatement(deleteSql);
+                 PreparedStatement insert = conn.prepareStatement(insertSql);
+                 PreparedStatement update = conn.prepareStatement(updateSql)) {
+                delete.setLong(1, file.getId());
+                delete.executeUpdate();
+                for (FileChunkMetadata chunk : chunks) {
+                    insert.setLong(1, file.getId());
+                    insert.setInt(2, chunk.getChunkOrder());
+                    insert.setString(3, chunk.getCrc32Checksum());
+                    insert.setString(4, chunk.getStorageLocation());
+                    insert.setInt(5, chunk.getVolumeGroup());
+                    insert.addBatch();
+                }
+                insert.executeBatch();
+                update.setLong(1, file.getSizeInBytes());
+                update.setObject(2, file.getLastModified());
+                update.setLong(3, file.getId());
+                if (update.executeUpdate() != 1) {
+                    throw new SQLException("File metadata row was not updated");
+                }
+                conn.commit();
+            } catch (SQLException e) {
+                conn.rollback();
+                throw e;
+            } finally {
+                conn.setAutoCommit(true);
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to replace file metadata: " + e.getMessage(), e);
         }
     }
 

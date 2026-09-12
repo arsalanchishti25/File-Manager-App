@@ -159,6 +159,7 @@ public class TopicPublisher {
         response.addProperty("mainAppId", mainAppId);
         response.addProperty("fileId", fileId);
         response.addProperty("success", success);
+        response.addProperty("status", success ? "success" : "failed");
         response.addProperty("message", message);
 
         String topic = TopicConstants.operationsResponse(mainAppId);

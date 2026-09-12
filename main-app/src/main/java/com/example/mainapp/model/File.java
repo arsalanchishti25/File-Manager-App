@@ -59,4 +59,8 @@ public class File {
     public File withNewNameAndModified(String newName, LocalDateTime newModified) {
         return new File(this.id, this.ownerId, newName, this.sizeInBytes, this.createdAt, newModified);
     }
+
+    public File withUpdatedSizeAndModified(long newSize, LocalDateTime newModified) {
+        return new File(this.id, this.ownerId, this.filename, newSize, this.createdAt, newModified);
+    }
 }

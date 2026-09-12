@@ -13,6 +13,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.ArrayList;
+import java.util.List;
+import java.time.LocalDateTime;
+import com.example.mainapp.model.FileChunkMetadata;
 
 /**
  * Handles file upload flow: Main -> LB -> Aggregator -> FS containers
@@ -45,12 +49,39 @@ public class UploadManager {
      * 8. Update file status to READY
      */
     public File uploadFile(long ownerId, Path sourcePath, long fileSize) throws Exception {
-        String filename = sourcePath.getFileName().toString();
+        return uploadFileInternal(ownerId, sourcePath, fileSize, null);
+    }
+
+    public File updateFile(File existingFile, long ownerId, Path sourcePath, long fileSize)
+            throws Exception {
+        return updateFile(existingFile, ownerId, sourcePath, fileSize, existingFile.getFilename());
+    }
+
+    public File updateFile(File existingFile, long ownerId, Path sourcePath, long fileSize,
+                           String originalFilename) throws Exception {
+        if (existingFile == null || existingFile.getOwnerId() != ownerId
+                || originalFilename == null || originalFilename.isBlank()
+                || !existingFile.getFilename().equals(originalFilename)) {
+            throw new IllegalArgumentException("File update identity does not match existing metadata");
+        }
+        return uploadFileInternal(ownerId, sourcePath, fileSize, existingFile, originalFilename);
+    }
+
+    private File uploadFileInternal(long ownerId, Path sourcePath, long fileSize,
+                                    File existingFile) throws Exception {
+        return uploadFileInternal(ownerId, sourcePath, fileSize, existingFile,
+                existingFile == null ? sourcePath.getFileName().toString() : existingFile.getFilename());
+    }
+
+    private File uploadFileInternal(long ownerId, Path sourcePath, long fileSize,
+                                    File existingFile, String logicalFilename) throws Exception {
+        String filename = logicalFilename;
         
         System.out.println("[UploadManager] Starting upload: " + filename + " (" + fileSize + " bytes)");
 
         // Step 1: Save metadata with UPLOADING status
-        File file = fileRepository.saveFile(ownerId, filename, fileSize);
+        boolean updating = existingFile != null;
+        File file = updating ? existingFile : fileRepository.saveFile(ownerId, filename, fileSize);
         MqttClient.MessageWaiter completionWaiter = null;
         // fileRepository.updateFileStatus(file.getId(), "UPLOADING");
         
@@ -66,6 +97,10 @@ public class UploadManager {
             uploadRequest.addProperty("filename", filename);
             uploadRequest.addProperty("operationId", operationRequest.getOperationId());
             uploadRequest.addProperty("correlationId", operationRequest.getCorrelationId());
+            uploadRequest.addProperty("updateExisting", updating);
+            if (updating) {
+                uploadRequest.addProperty("stagingToken", operationRequest.getCorrelationId());
+            }
 
             // FIXED: Wait for response on operations/response/{mainAppId}
             String responseTopic = TopicConstants.operationsResponse(mainAppId);
@@ -110,6 +145,10 @@ public class UploadManager {
             instructions.addProperty("operationId", operationRequest.getOperationId());
             instructions.addProperty("correlationId", operationRequest.getCorrelationId());
             instructions.addProperty("sourceServiceId", mainAppId);
+            instructions.addProperty("updateExisting", updating);
+            if (updating) {
+                instructions.addProperty("stagingToken", operationRequest.getCorrelationId());
+            }
             instructions.add("fsContainers", fsContainersArray);
 
             // FIXED: Save as instructions.json (not manifest.json)
@@ -183,6 +222,7 @@ public class UploadManager {
 
             validateChunkMetadata(chunksArray);
 
+            List<FileChunkMetadata> updatedChunks = new ArrayList<>();
             for (int i = 0; i < chunksArray.size(); i++) {
                 JsonObject chunk = chunksArray.get(i).getAsJsonObject();
                 int chunkOrder = requireInt(chunk, "chunkOrder");
@@ -191,10 +231,22 @@ public class UploadManager {
                 String crc32 = requireString(chunk, "crc32");
 
                 // Save: fileId, chunkOrder, crc32, storageLocation (fsId), volumeGroup
-                fileRepository.saveChunk(file.getId(), chunkOrder, crc32, fsId, volumeGroup);
+                updatedChunks.add(new FileChunkMetadata(0, file.getId(), chunkOrder,
+                        fsId, crc32, volumeGroup));
                 
                 System.out.println("[UploadManager] Saved chunk metadata: order=" + chunkOrder 
                                  + ", fsId=" + fsId + ", volumeGroup=" + volumeGroup);
+            }
+
+            if (updating) {
+                file = file.withUpdatedSizeAndModified(fileSize, LocalDateTime.now());
+                fileRepository.replaceFileAndChunks(file, updatedChunks);
+            } else {
+                for (FileChunkMetadata chunk : updatedChunks) {
+                    fileRepository.saveChunk(file.getId(), chunk.getChunkOrder(),
+                            chunk.getCrc32Checksum(), chunk.getStorageLocation(),
+                            chunk.getVolumeGroup());
+                }
             }
 
             // Step 8: Update file status to READY
@@ -209,7 +261,9 @@ public class UploadManager {
             if (completionWaiter != null) {
                 completionWaiter.close();
             }
-            fileRepository.deleteById(file.getId());
+            if (!updating) {
+                fileRepository.deleteById(file.getId());
+            }
             System.err.println("[UploadManager] Upload failed: " + e.getMessage());
             e.printStackTrace();
             throw e;
