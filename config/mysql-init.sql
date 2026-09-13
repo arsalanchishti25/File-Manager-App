@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS event_logs (
 INSERT INTO users (username, password_hash, role, created_at)
 VALUES (
     'admin',
-    '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy',  -- "admin123"
+    '$2a$12$npyFFPblEulnKqIqrQN5SehdqmkJcpR..0grMNp3LxkRd/7uSs.lG',  -- "user"
     'ADMIN',
     NOW()
 )

@@ -30,8 +30,12 @@ import javafx.concurrent.Task;
 import java.io.IOException;
 import java.net.URL;
 import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.charset.CoderResult;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
+import java.nio.charset.Charset;
+import java.nio.charset.UnsupportedCharsetException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -39,6 +43,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
 import java.util.ResourceBundle;
+import java.util.UUID;
 
 public class MainController implements Initializable {
 
@@ -205,6 +210,7 @@ public class MainController implements Initializable {
         if (chosen == null) {
             return;
         }
+
         System.out.println("Selected file: " + chosen.getAbsolutePath());
         System.out.println("File exists: " + chosen.exists());
         System.out.println("File readable: " + chosen.canRead());
@@ -259,6 +265,157 @@ public class MainController implements Initializable {
     }
 
     @FXML
+    private void onCreateNewFileClicked(ActionEvent event) {
+        if (currentUser == null) {
+            return;
+        }
+
+        System.out.println("[MainController] Create New File opened");
+        TextField filenameField = new TextField();
+        filenameField.setPromptText("Filename, for example notes.txt");
+        TextArea contentArea = new TextArea();
+        contentArea.setWrapText(false);
+        contentArea.setPrefRowCount(20);
+        Label status = new Label("Enter a filename and file content.");
+        Button saveButton = new Button("Save File");
+        Button cancelButton = new Button("Cancel");
+
+        Stage editorStage = new Stage();
+        editorStage.setTitle("Create New File");
+        editorStage.setOnCloseRequest(close -> {
+            if (saveButton.isDisabled()) {
+                close.consume();
+            }
+        });
+        cancelButton.setOnAction(ignored -> editorStage.close());
+        saveButton.setOnAction(ignored -> {
+            String filename;
+            try {
+                filename = validateNewFilename(filenameField.getText());
+                if (fileData.stream().anyMatch(file -> file.getOwnerId() == currentUser.getId()
+                        && file.getFilename().equals(filename))) {
+                    throw new IllegalArgumentException("A file with this name already exists.");
+                }
+            } catch (IllegalArgumentException validationError) {
+                status.setText(validationError.getMessage());
+                return;
+            }
+
+            System.out.println("[MainController] Create New File save clicked: filename="
+                    + filename);
+            saveButton.setDisable(true);
+            cancelButton.setDisable(true);
+            filenameField.setDisable(true);
+            contentArea.setDisable(true);
+            status.setText("Creating and uploading " + filename + "...");
+            String content = contentArea.getText();
+            long ownerId = currentUser.getId();
+
+            Task<File> createTask = new Task<>() {
+                @Override
+                protected File call() throws Exception {
+                    Path sourceDirectory = Path.of("data", "temp", "new-files",
+                            UUID.randomUUID().toString());
+                    Path sourcePath = sourceDirectory.resolve(filename);
+                    try {
+                        Files.createDirectories(sourceDirectory);
+                        long byteCount = writeNewFileSource(sourcePath, content);
+                        System.out.println("[MainController] New file temporary source created: "
+                                + sourcePath + ", utf8Bytes=" + byteCount);
+                        System.out.println("[MainController] New file upload started: filename="
+                                + filename + ", utf8Bytes=" + byteCount);
+                        File created = fileService.uploadFile(ownerId, sourcePath);
+                        System.out.println("[MainController] New file upload completed: fileId="
+                                + created.getId() + ", filename=" + created.getFilename());
+                        return created;
+                    } finally {
+                        cleanupNewFileSource(sourcePath, sourceDirectory);
+                    }
+                }
+            };
+            createTask.setOnSucceeded(done -> {
+                File created = createTask.getValue();
+                appendCreatedFileOnce(fileData, created);
+                fileTable.refresh();
+                eventLogger.logFileUploaded(ownerId, created.getId(),
+                        created.getFilename(), created.getSizeInBytes());
+                statusLabel.setText("File created successfully.");
+                editorStage.close();
+            });
+            createTask.setOnFailed(failed -> {
+                Throwable error = createTask.getException();
+                System.err.println("[MainController] New file creation failed");
+                if (error != null) {
+                    error.printStackTrace();
+                }
+                status.setText(error == null ? "File creation failed." : error.getMessage());
+                saveButton.setDisable(false);
+                cancelButton.setDisable(false);
+                filenameField.setDisable(false);
+                contentArea.setDisable(false);
+            });
+            Thread createThread = new Thread(createTask, "create-new-file");
+            createThread.setDaemon(true);
+            createThread.start();
+        });
+
+        VBox root = new VBox(10,
+                new Label("Filename"), filenameField,
+                new Label("File content"), contentArea,
+                status, new HBox(10, saveButton, cancelButton));
+        VBox.setVgrow(contentArea, Priority.ALWAYS);
+        root.setPadding(new javafx.geometry.Insets(10));
+        editorStage.setScene(new javafx.scene.Scene(root, 700, 500));
+        editorStage.show();
+    }
+
+    static String validateNewFilename(String rawFilename) {
+        if (rawFilename == null) {
+            throw new IllegalArgumentException("Filename cannot be blank.");
+        }
+        String filename = rawFilename.trim();
+        if (filename.isBlank()) {
+            throw new IllegalArgumentException("Filename cannot be blank.");
+        }
+        if (filename.contains("/") || filename.contains("\\") || filename.contains("..")) {
+            throw new IllegalArgumentException("Filename contains an unsafe path.");
+        }
+        for (int i = 0; i < filename.length(); i++) {
+            if (Character.isISOControl(filename.charAt(i))) {
+                throw new IllegalArgumentException("Filename contains control characters.");
+            }
+        }
+        return filename;
+    }
+
+    static long writeNewFileSource(Path sourcePath, String content) throws IOException {
+        byte[] encoded = content.getBytes(StandardCharsets.UTF_8);
+        Files.write(sourcePath, encoded);
+        if (!Files.exists(sourcePath) || !Files.isReadable(sourcePath)
+                || Files.size(sourcePath) != encoded.length) {
+            throw new IOException("New file temporary source validation failed.");
+        }
+        return encoded.length;
+    }
+
+    static void cleanupNewFileSource(Path sourcePath, Path sourceDirectory) {
+        try {
+            Files.deleteIfExists(sourcePath);
+            Files.deleteIfExists(sourceDirectory);
+            System.out.println("[MainController] New file temporary source cleanup: " + sourcePath);
+        } catch (IOException cleanupError) {
+            System.err.println("[MainController] New file temporary source cleanup failed: "
+                    + sourcePath + ": " + cleanupError.getMessage());
+        }
+    }
+
+    static void appendCreatedFileOnce(ObservableList<File> files, File created) {
+        if (files.stream().noneMatch(existing -> existing.getId() == created.getId())) {
+            files.add(created);
+        }
+    }
+
+    @FXML
     private void onEditContentClicked(ActionEvent event) {
         File selected = fileTable.getSelectionModel().getSelectedItem();
         if (selected == null || currentUser == null) return;
@@ -280,7 +437,8 @@ public class MainController implements Initializable {
                     throw new IOException("Downloaded file is missing/empty");
                 }
                 try {
-                    return new ViewerData(path, readTextFile(path), selected);
+                    DecodedText decoded = readTextFile(path);
+                    return new ViewerData(path, decoded.content(), selected, decoded.status());
                 } catch (CharacterCodingException e) {
                     throw new IOException(
                             "This file was downloaded successfully but cannot be displayed as text.", e);
@@ -292,7 +450,8 @@ public class MainController implements Initializable {
                 File editorSnapshot = fileService.captureUpdateSnapshot(selected, currentUser.getId());
                 openTextViewer(editorSnapshot.getFilename(),
                         new ViewerData(downloadTask.getValue().path(),
-                                downloadTask.getValue().content(), editorSnapshot));
+                                downloadTask.getValue().content(), editorSnapshot,
+                                downloadTask.getValue().status()));
                 statusLabel.setText("");
             } catch (Exception e) {
                 System.err.println("[MainController] In-app viewer failed");
@@ -322,26 +481,98 @@ public class MainController implements Initializable {
         downloadThread.start();
     }
 
-    private String readTextFile(Path path) throws IOException {
+    static DecodedText readTextFile(Path path) throws IOException {
         byte[] bytes = Files.readAllBytes(path);
-        for (byte value : bytes) {
-            if (value == 0 || (value < 0x20 && value != '\n'
-                    && value != '\r' && value != '\t')) {
-                throw new CharacterCodingException();
-            }
+        System.out.println("[MainController] Text decode: path=" + path
+                + ", byteLength=" + bytes.length);
+        if (!isLikelyText(bytes)) {
+            System.err.println("[MainController] Text decode rejected binary content: path=" + path);
+            throw new CharacterCodingException();
         }
-        return StandardCharsets.UTF_8.newDecoder()
+        byte[] utf8Bytes = hasUtf8Bom(bytes) ? java.util.Arrays.copyOfRange(bytes, 3, bytes.length)
+                : bytes;
+        try {
+            String content = decodeStrict(utf8Bytes, StandardCharsets.UTF_8);
+            System.out.println("[MainController] Text decode selected charset=UTF-8");
+            return new DecodedText(content, "");
+        } catch (CharacterCodingException utf8Failure) {
+            int malformedOffset = findMalformedOffset(utf8Bytes);
+            System.err.println("[MainController] Strict UTF-8 decode failed: path=" + path
+                    + ", malformedOffset=" + malformedOffset
+                    + ", bytesAroundOffset=" + hexAround(utf8Bytes, malformedOffset));
+        }
+        try {
+            String content = decodeStrict(bytes, Charset.forName("windows-1252"));
+            System.out.println("[MainController] Text decode selected charset=Windows-1252");
+            return new DecodedText(content, "Opened using Windows-1252 text decoding.");
+        } catch (CharacterCodingException | UnsupportedCharsetException ignored) {
+            String content = decodeStrict(bytes, StandardCharsets.ISO_8859_1);
+            System.out.println("[MainController] Text decode selected charset=ISO-8859-1");
+            return new DecodedText(content, "Opened using ISO-8859-1 text decoding.");
+        }
+    }
+
+    private static String decodeStrict(byte[] bytes, Charset charset) throws CharacterCodingException {
+        return charset.newDecoder()
                 .onMalformedInput(CodingErrorAction.REPORT)
                 .onUnmappableCharacter(CodingErrorAction.REPORT)
                 .decode(ByteBuffer.wrap(bytes))
                 .toString();
     }
 
+    private static boolean hasUtf8Bom(byte[] bytes) {
+        return bytes.length >= 3 && (bytes[0] & 0xff) == 0xef
+                && (bytes[1] & 0xff) == 0xbb && (bytes[2] & 0xff) == 0xbf;
+    }
+
+    private static boolean isLikelyText(byte[] bytes) {
+        int controlBytes = 0;
+        for (byte value : bytes) {
+            int unsigned = value & 0xff;
+            if (unsigned == 0) {
+                return false;
+            }
+            if (unsigned < 0x20 && unsigned != '\n' && unsigned != '\r'
+                    && unsigned != '\t' && unsigned != '\f') {
+                controlBytes++;
+            }
+        }
+        return controlBytes <= Math.max(1, bytes.length / 100);
+    }
+
+    private static int findMalformedOffset(byte[] bytes) {
+        var decoder = StandardCharsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT);
+        ByteBuffer input = ByteBuffer.wrap(bytes);
+        CharBuffer output = CharBuffer.allocate(Math.max(1, bytes.length));
+        CoderResult result = decoder.decode(input, output, true);
+        return result.isError() ? input.position() : -1;
+    }
+
+    private static String hexAround(byte[] bytes, int offset) {
+        if (offset < 0 || offset >= bytes.length) {
+            return "unavailable";
+        }
+        int start = Math.max(0, offset - 4);
+        int end = Math.min(bytes.length, offset + 8);
+        StringBuilder hex = new StringBuilder();
+        for (int i = start; i < end; i++) {
+            if (hex.length() > 0) {
+                hex.append(' ');
+            }
+            hex.append(String.format("%02x", bytes[i] & 0xff));
+        }
+        return hex.toString();
+    }
+
     private void openTextViewer(String originalFilename, ViewerData viewerData) {
         TextArea textArea = new TextArea(viewerData.content());
         textArea.setWrapText(false);
         Button saveButton = new Button("Save Changes");
-        Label editorStatus = new Label("Edit the file and select Save Changes to update it.");
+        Label editorStatus = new Label(viewerData.status().isBlank()
+                ? "Edit the file and select Save Changes to update it."
+                : viewerData.status());
         Button closeButton = new Button("Close");
         saveButton.setDisable(false);
 
@@ -405,7 +636,10 @@ public class MainController implements Initializable {
         editorStage.show();
     }
 
-    private record ViewerData(Path path, String content, File file) {
+    private record ViewerData(Path path, String content, File file, String status) {
+    }
+
+    record DecodedText(String content, String status) {
     }
 
     @FXML
