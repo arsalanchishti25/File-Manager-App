@@ -35,6 +35,7 @@
 
             <HBox spacing="10">
                 <Button text="Add File" onAction="#onAddFileClicked"/>
+                <Button text="Create New File" onAction="#onCreateNewFileClicked"/>
                 <Button text="Rename Selected" onAction="#onRenameFileClicked"/>
                 <Button fx:id="viewFileBtn" text="View/Edit File" onAction="#onEditContentClicked"/>
                 <Button text="Share Selected" onAction="#onShareSelectedClicked"/>
